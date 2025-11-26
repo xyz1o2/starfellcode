@@ -89,19 +89,27 @@ async fn run_app<B: ratatui::backend::Backend>(
                 })?;
             }
 
-            // 处理终端事件
-            Some(Ok(Event::Key(key))) = reader.next() => {
-                if key.kind == crossterm::event::KeyEventKind::Press {
-                    let action = crate::events::handler::EventHandler::handle_chat_event(app, key);
-                    match action {
-                        crate::app::AppAction::SubmitChat => {
-                            app.handle_chat_submit().await;
+            // 处理终端事件 - 键盘和鼠标
+            Some(Ok(event)) = reader.next() => {
+                match event {
+                    crossterm::event::Event::Key(key) => {
+                        if key.kind == crossterm::event::KeyEventKind::Press {
+                            let action = crate::events::handler::EventHandler::handle_chat_event(app, key);
+                            match action {
+                                crate::app::AppAction::SubmitChat => {
+                                    app.handle_chat_submit().await;
+                                }
+                                crate::app::AppAction::Quit => {
+                                    return Ok(());
+                                }
+                                crate::app::AppAction::None => {}
+                            }
                         }
-                        crate::app::AppAction::Quit => {
-                            return Ok(());
-                        }
-                        crate::app::AppAction::None => {}
                     }
+                    crossterm::event::Event::Mouse(mouse) => {
+                        let _action = crate::events::handler::EventHandler::handle_mouse_event(app, mouse);
+                    }
+                    _ => {}
                 }
             }
 

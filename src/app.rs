@@ -2,14 +2,15 @@ use crate::ai::client::LLMClient;
 use crate::ai::commands::{CommandParser, CommandType};
 use crate::ai::config::LLMConfig;
 use crate::ai::streaming::{StreamHandler, StreamingChatResponse};
-use crate::ai::code_modification::{AICodeModificationDetector, CodeModificationOp, CodeDiff, CodeMatcher};
 use crate::core::history::ChatHistory;
 use crate::core::message::{Message, Role};
 use crate::ui::command_hints::CommandHints;
 use crate::commands::FileCommandHandler;
 use crate::prompts;
+use crate::ai::code_modification::{AICodeModificationDetector, CodeModificationOp, CodeDiff, CodeMatcher};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
+    widgets::ScrollbarState,
     Frame,
 };
 use std::sync::Arc;
@@ -69,6 +70,7 @@ pub struct App {
     
     // 聊天历史滚动
     pub chat_scroll_offset: usize,
+    pub scrollbar_state: ScrollbarState,
     
     // 鼠标选择
     pub selected_text: String,
@@ -100,6 +102,7 @@ impl App {
             modification_selected_index: 0,
             modification_choice: ModificationChoice::Confirm,
             chat_scroll_offset: 0,
+            scrollbar_state: ScrollbarState::default(),
             selected_text: String::new(),
             selection_start: None,
             selection_end: None,

@@ -23,6 +23,20 @@ impl EventHandler {
                 app.selection_end = Some((mouse.column, mouse.row));
                 AppAction::None
             }
+            MouseEventKind::ScrollUp => {
+                // 鼠标滚轮向上 - 向上滚动聊天历史（看更早的消息）
+                if app.chat_scroll_offset < app.chat_history.get_messages().len().saturating_sub(1) {
+                    app.chat_scroll_offset += 1;
+                }
+                AppAction::None
+            }
+            MouseEventKind::ScrollDown => {
+                // 鼠标滚轮向下 - 向下滚动聊天历史（看更新的消息）
+                if app.chat_scroll_offset > 0 {
+                    app.chat_scroll_offset -= 1;
+                }
+                AppAction::None
+            }
             _ => AppAction::None,
         }
     }
@@ -367,7 +381,7 @@ impl EventHandler {
                 AppAction::None
             }
             KeyCode::Up => {
-                // 上键 - 如果提及建议可见，则导航；否则滚动聊天历史
+                // 上键 - 如果提及建议可见，则导航；否则滚动聊天历史（看更早的消息）
                 if app.mention_suggestions.visible {
                     app.file_search.select_previous();
                     app.mention_suggestions.selected_index = app.file_search.selected_index;
@@ -379,7 +393,7 @@ impl EventHandler {
                 AppAction::None
             }
             KeyCode::Down => {
-                // 下键 - 如果提及建议可见，则导航；否则滚动聊天历史
+                // 下键 - 如果提及建议可见，则导航；否则滚动聊天历史（看更新的消息）
                 if app.mention_suggestions.visible {
                     app.file_search.select_next();
                     app.mention_suggestions.selected_index = app.file_search.selected_index;

@@ -15,7 +15,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, Wrap},
     Frame,
 };
 
@@ -113,7 +113,7 @@ fn render_diff_lines(lines: &mut Vec<Line>, old_content: &str, new_content: &str
     ]));
 }
 
-pub fn render_history(f: &mut Frame, app: &App, area: Rect) {
+pub fn render_history(f: &mut Frame, app: &mut App, area: Rect) {
     let mut lines = Vec::new();
 
     if app.chat_history.is_empty() && !app.is_streaming {
@@ -302,32 +302,35 @@ pub fn render_history(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // 计算需要的行数
-    let total_lines = lines.len() as u16;
-    let available_height = area.height.saturating_sub(2); // 减去边框
-    
-    // 如果内容超过可用高度，计算滚动偏移
-    let scroll_offset = if total_lines > available_height {
-        (total_lines - available_height) as usize
-    } else {
-        0
-    };
+    // 更新 scrollbar_state
+    let total_lines = lines.len();
+    app.scrollbar_state = app.scrollbar_state
+        .content_length(total_lines)
+        .position(app.chat_scroll_offset);
 
     let history = Paragraph::new(lines)
         .wrap(Wrap { trim: true })
-        .scroll((scroll_offset as u16, 0))
+        .scroll((app.chat_scroll_offset as u16, 0))
         .block(Block::default()
             .borders(Borders::ALL)
             .title(" 💬 Chat History ")
             .style(Style::default().fg(Color::DarkGray)));
 
     f.render_widget(history, area);
+    
+    // 渲染滚动条
+    f.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓")),
+        area,
+        &mut app.scrollbar_state,
+    );
 }
 
 pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     // 动态决定是否显示提示区
     let show_hints = app.mention_suggestions.visible || app.command_hints.visible;
-    
     let (input_area, hints_area) = if show_hints {
         // 如果需要显示提示，分割区域
         // 提示区在上面，输入框在下面（参考 fzf --layout reverse）
