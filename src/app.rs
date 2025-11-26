@@ -63,6 +63,21 @@ impl App {
         self.llm_client = Some(LLMClient::new(llm_config));
     }
 
+    /// 更新 LLM 客户端配置
+    fn update_llm_client(&mut self) {
+        if let Some(config) = &self.llm_config {
+            let llm_config = crate::ai::client::LLMConfig {
+                api_key: config.api_key.clone(),
+                model: config.model.clone(),
+                base_url: config.base_url.clone(),
+                temperature: config.temperature,
+                max_tokens: config.max_tokens,
+            };
+            
+            self.llm_client = Some(LLMClient::new(llm_config));
+        }
+    }
+
 
     pub fn handle_chat_input(&mut self, c: char) {
         self.chat_input.push(c);
@@ -170,17 +185,194 @@ impl App {
                     }
                 }
                 CommandType::Status => {
-                    let mut status = String::from("📈 应用状态:\n");
                     if let Some(config) = &self.llm_config {
-                        status.push_str(&format!("  提供商: {}\n", config.provider.to_string()));
-                        status.push_str(&format!("  模型: {}\n", config.model));
-                        status.push_str(&format!("  温度: {}\n", config.temperature));
-                        status.push_str(&format!("  最大令牌: {}\n", config.max_tokens));
+                        format!("📈 {}", config.get_status_info())
                     } else {
-                        status.push_str("  LLM: 未配置\n");
+                        "❌ LLM 未配置".to_string()
                     }
-                    status.push_str(&format!("  聊天消息数: {}\n", self.chat_history.len()));
-                    status
+                }
+                CommandType::ListProviders => {
+                    let mut response = String::from("🔌 可用的 AI 提供商:\n\n");
+                    for (provider, description) in LLMConfig::list_providers() {
+                        response.push_str(&format!("• {}: {}\n", provider.to_string(), description));
+                    }
+                    response
+                }
+                CommandType::SetProvider => {
+                    if cmd.args.is_empty() {
+                        "❌ 请指定提供商名称。例如: /set-provider openai".to_string()
+                    } else {
+                        let provider_name = &cmd.args[0];
+                        let provider = crate::ai::config::LLMProvider::from_string(provider_name);
+                        
+                        if let Some(config) = &mut self.llm_config {
+                            config.set_provider(provider.clone());
+                            self.update_llm_client();
+                            format!("✓ 提供商已切换到: {}", provider.to_string())
+                        } else {
+                            "❌ 请先配置 LLM".to_string()
+                        }
+                    }
+                }
+                CommandType::SetApiKey => {
+                    if cmd.args.is_empty() {
+                        "❌ 请提供 API 密钥。例如: /set-api-key your-key-here".to_string()
+                    } else {
+                        let api_key = cmd.args.join(" ");
+                        if let Some(config) = &mut self.llm_config {
+                            config.api_key = api_key;
+                            self.update_llm_client();
+                            "✓ API 密钥已更新".to_string()
+                        } else {
+                            "❌ 请先配置 LLM".to_string()
+                        }
+                    }
+                }
+                CommandType::SetModel => {
+                    if cmd.args.is_empty() {
+                        "❌ 请指定模型名称。例如: /set-model gpt-4".to_string()
+                    } else {
+                        let model = cmd.args.join(" ");
+                        if let Some(config) = &mut self.llm_config {
+                            config.model = model.clone();
+                            self.update_llm_client();
+                            format!("✓ 模型已设置为: {}", model)
+                        } else {
+                            "❌ 请先配置 LLM".to_string()
+                        }
+                    }
+                }
+                CommandType::SetBaseUrl => {
+                    if cmd.args.is_empty() {
+                        "❌ 请提供基础 URL。例如: /set-base-url https://api.example.com".to_string()
+                    } else {
+                        let base_url = cmd.args.join(" ");
+                        if let Some(config) = &mut self.llm_config {
+                            config.base_url = base_url.clone();
+                            self.update_llm_client();
+                            format!("✓ 基础 URL 已设置为: {}", base_url)
+                        } else {
+                            "❌ 请先配置 LLM".to_string()
+                        }
+                    }
+                }
+                CommandType::ConfigOpenAI => {
+                    if cmd.args.is_empty() {
+                        "❌ 请提供 API 密钥。例如: /openai sk-your-key gpt-4".to_string()
+                    } else {
+                        let api_key = cmd.args[0].clone();
+                        let model = cmd.args.get(1).cloned();
+                        
+                        if let Some(config) = &mut self.llm_config {
+                            config.quick_config_openai(api_key, model.clone());
+                        } else {
+                            let mut new_config = LLMConfig::default_openai(api_key);
+                            if let Some(m) = model.clone() {
+                                new_config.model = m;
+                            }
+                            self.llm_config = Some(new_config);
+                        }
+                        self.update_llm_client();
+                        format!("✓ OpenAI 配置完成 - 模型: {}", 
+                               model.unwrap_or_else(|| "gpt-3.5-turbo".to_string()))
+                    }
+                }
+                CommandType::ConfigClaude => {
+                    if cmd.args.is_empty() {
+                        "❌ 请提供 API 密钥。例如: /claude your-key claude-3-opus".to_string()
+                    } else {
+                        let api_key = cmd.args[0].clone();
+                        let model = cmd.args.get(1).cloned();
+                        
+                        if let Some(config) = &mut self.llm_config {
+                            config.quick_config_claude(api_key, model.clone());
+                        } else {
+                            let mut new_config = LLMConfig::default_openai(api_key); // 临时使用，会被覆盖
+                            new_config.quick_config_claude(new_config.api_key.clone(), model.clone());
+                            self.llm_config = Some(new_config);
+                        }
+                        self.update_llm_client();
+                        format!("✓ Claude 配置完成 - 模型: {}", 
+                               model.unwrap_or_else(|| "claude-3-sonnet".to_string()))
+                    }
+                }
+                CommandType::ConfigGemini => {
+                    if cmd.args.is_empty() {
+                        "❌ 请提供 API 密钥。例如: /gemini your-key gemini-pro".to_string()
+                    } else {
+                        let api_key = cmd.args[0].clone();
+                        let model = cmd.args.get(1).cloned();
+                        
+                        if let Some(config) = &mut self.llm_config {
+                            config.quick_config_gemini(api_key, model.clone());
+                        } else {
+                            let mut new_config = LLMConfig::default_gemini(api_key);
+                            if let Some(m) = model.clone() {
+                                new_config.model = m;
+                            }
+                            self.llm_config = Some(new_config);
+                        }
+                        self.update_llm_client();
+                        format!("✓ Gemini 配置完成 - 模型: {}", 
+                               model.unwrap_or_else(|| "gemini-1.5-flash".to_string()))
+                    }
+                }
+                CommandType::ConfigOllama => {
+                    let model = cmd.args.get(0).cloned();
+                    let base_url = cmd.args.get(1).cloned();
+                    
+                    if let Some(config) = &mut self.llm_config {
+                        config.quick_config_ollama(model.clone(), base_url.clone());
+                    } else {
+                        let mut new_config = LLMConfig::default_ollama();
+                        if let Some(m) = model.clone() {
+                            new_config.model = m;
+                        }
+                        if let Some(url) = base_url.clone() {
+                            new_config.base_url = url;
+                        }
+                        self.llm_config = Some(new_config);
+                    }
+                    self.update_llm_client();
+                    format!("✓ Ollama 配置完成 - 模型: {}", 
+                           model.unwrap_or_else(|| "mistral".to_string()))
+                }
+                CommandType::ConfigLocal => {
+                    if cmd.args.is_empty() {
+                        "❌ 请提供服务器 URL。例如: /local http://localhost:1234/v1/chat/completions".to_string()
+                    } else {
+                        let base_url = cmd.args[0].clone();
+                        let model = cmd.args.get(1).cloned();
+                        
+                        if let Some(config) = &mut self.llm_config {
+                            config.quick_config_local(base_url.clone(), model.clone());
+                        } else {
+                            let new_config = LLMConfig::default_local_server(base_url.clone());
+                            self.llm_config = Some(new_config);
+                        }
+                        self.update_llm_client();
+                        format!("✓ 本地服务器配置完成 - URL: {}", base_url)
+                    }
+                }
+                CommandType::SaveConfig => {
+                    if let Some(config) = &self.llm_config {
+                        match config.save_to_env() {
+                            Ok(_) => "✓ 配置已保存到 .env 文件".to_string(),
+                            Err(e) => format!("❌ 保存配置失败: {}", e),
+                        }
+                    } else {
+                        "❌ 没有配置可保存".to_string()
+                    }
+                }
+                CommandType::LoadConfig => {
+                    match LLMConfig::from_env() {
+                        Ok(config) => {
+                            self.llm_config = Some(config);
+                            self.update_llm_client();
+                            "✓ 配置已从 .env 文件重新加载".to_string()
+                        }
+                        Err(e) => format!("❌ 加载配置失败: {}", e),
+                    }
                 }
                 CommandType::Unknown => "❌ 未知命令。输入 /help 获取帮助".to_string(),
             };

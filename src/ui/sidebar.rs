@@ -5,14 +5,15 @@ use crate::ui::types::{
 };
 use crate::ui::theme::ModernTheme;
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect, Alignment},
-    style::{Style, Modifier},
+    backend::Backend,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Gauge},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 pub struct Sidebar {
     pub sections: Vec<SidebarSection>,
@@ -176,7 +177,7 @@ impl Sidebar {
         theme: &ModernTheme,
     ) {
         let is_expanded = self.expanded_sections.contains(&section_index);
-        let style = if selected {
+        let _style = if selected {
             theme.get_selection_style()
         } else {
             theme.typography.body_style
@@ -348,7 +349,7 @@ impl Sidebar {
             ConnectionStatus::Connected => ("🟢 Connected", theme.colors.success),
             ConnectionStatus::Connecting => ("🟡 Connecting", theme.colors.warning),
             ConnectionStatus::Disconnected => ("🔴 Disconnected", theme.colors.error),
-            ConnectionStatus::Error(msg) => ("❌ Error", theme.colors.error),
+            ConnectionStatus::Error(_msg) => ("❌ Error", theme.colors.error),
         };
         lines.push(Line::from(Span::styled(status_text, Style::default().fg(status_color))));
 

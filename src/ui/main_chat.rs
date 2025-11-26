@@ -1,23 +1,28 @@
-use crate::ui::types::{EnhancedChatMessage, MessageStatus, MessageMetadata, ChatAction};
+use crate::ui::types::{MessageStatus, ChatAction};
 use crate::ui::theme::ModernTheme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Style, Modifier},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap, Clear, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Borders, Paragraph, Wrap, Scrollbar, ScrollbarOrientation, ScrollbarState},
     Frame,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use chrono::{DateTime, Utc};
 
-pub struct MainChatArea {
-    pub messages: Vec<EnhancedChatMessage>,
-    pub scroll_offset: usize,
-    pub input_text: String,
-    pub cursor_position: usize,
-    pub typing_indicator: Option<TypingIndicator>,
-    pub max_scroll: usize,
-    pub auto_scroll: bool,
+#[derive(Clone, Debug)]
+pub struct EnhancedChatMessage {
+    pub role: String,
+    pub content: String,
+    pub timestamp: DateTime<Utc>,
+    pub status: MessageStatus,
+    pub metadata: MessageMetadata,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MessageMetadata {
+    pub tokens: Option<usize>,
+    pub processing_time_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -27,108 +32,83 @@ pub struct TypingIndicator {
     pub last_update: DateTime<Utc>,
 }
 
+#[derive(Clone, Debug)]
+pub struct MainChatArea {
+    pub messages: Vec<EnhancedChatMessage>,
+    pub input_text: String,
+    pub cursor_position: usize,
+    pub scroll_offset: usize,
+    pub max_scroll: usize,
+    pub auto_scroll: bool,
+    pub typing_indicator: Option<TypingIndicator>,
+}
+
 impl MainChatArea {
     pub fn new() -> Self {
         Self {
             messages: Vec::new(),
-            scroll_offset: 0,
             input_text: String::new(),
             cursor_position: 0,
-            typing_indicator: None,
+            scroll_offset: 0,
             max_scroll: 0,
             auto_scroll: true,
+            typing_indicator: None,
         }
     }
 
     /// Render the main chat area
-    pub fn render(&self, frame: &mut Frame, area: Rect, focused: bool, theme: &ModernTheme) {
-        let border_style = theme.get_border_style(focused);
-        
-        // Split area into chat history and input
+    pub fn render(&self, frame: &mut Frame, area: Rect, theme: &ModernTheme, focused: bool) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(5),      // Chat history (minimum 5 lines)
-                Constraint::Length(3),   // Input area (3 lines)
+                Constraint::Min(3),
+                Constraint::Length(5),
             ])
             .split(area);
 
-        // Render chat history
-        self.render_chat_history(frame, chunks[0], theme, focused);
-        
-        // Render input area
+        self.render_chat_history(frame, chunks[0], theme);
         self.render_input_area(frame, chunks[1], theme, focused);
     }
 
-    /// Render chat history section
-    fn render_chat_history(&self, frame: &mut Frame, area: Rect, theme: &ModernTheme, focused: bool) {
-        let border_style = if focused {
-            theme.borders.active_border
-        } else {
-            theme.borders.inactive_border
-        };
-
+    /// Render chat history
+    fn render_chat_history(&self, frame: &mut Frame, area: Rect, theme: &ModernTheme) {
         let block = Block::default()
             .borders(Borders::ALL)
             .title(" 💬 Chat History ")
             .title_alignment(Alignment::Left)
-            .border_style(border_style);
+            .border_style(theme.get_border_style(false));
 
-        let inner_area = block.inner(area);
+        let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        if inner_area.height < 1 {
-            return;
-        }
-
-        // Prepare chat lines for display
         let mut lines = Vec::new();
-        
-        if self.messages.is_empty() && self.typing_indicator.is_none() {
-            // Welcome message
+
+        if self.messages.is_empty() {
             lines.extend(self.create_welcome_message(theme));
         } else {
-            // Display messages
             for message in &self.messages {
-                lines.extend(self.format_message(message, theme, inner_area.width));
-                lines.push(Line::from("")); // Empty line between messages
-            }
-
-            // Show typing indicator if active
-            if let Some(indicator) = &self.typing_indicator {
-                lines.extend(self.format_typing_indicator(indicator, theme));
+                lines.extend(self.format_message(message, theme, inner.width));
+                lines.push(Line::from(""));
             }
         }
 
-        // Apply scrolling
-        let visible_lines = if lines.len() > inner_area.height as usize {
-            let start_index = if self.auto_scroll {
-                lines.len().saturating_sub(inner_area.height as usize)
-            } else {
-                self.scroll_offset.min(lines.len().saturating_sub(inner_area.height as usize))
-            };
-            lines.into_iter().skip(start_index).take(inner_area.height as usize).collect()
-        } else {
-            lines
-        };
-
-        let paragraph = Paragraph::new(visible_lines)
-            .wrap(Wrap { trim: true });
-
-        frame.render_widget(paragraph, inner_area);
-
-        // Render scrollbar if needed
-        if self.messages.len() > inner_area.height as usize {
-            self.render_scrollbar(frame, area, theme);
+        if let Some(indicator) = &self.typing_indicator {
+            lines.extend(self.format_typing_indicator(indicator, theme));
         }
+
+        let paragraph = Paragraph::new(lines)
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(paragraph, inner);
+        self.render_scrollbar(frame, area, theme);
     }
 
     /// Render input area
     fn render_input_area(&self, frame: &mut Frame, area: Rect, theme: &ModernTheme, focused: bool) {
         let border_style = if focused {
-            theme.borders.active_border
+            theme.get_border_style(true)
         } else {
-            theme.borders.inactive_border
+            theme.get_border_style(false)
         };
 
         // Split input area into hint and input box
@@ -149,7 +129,7 @@ impl MainChatArea {
 
         let hint = Paragraph::new(Line::from(Span::styled(
             hint_text,
-            theme.typography.caption_style,
+            Style::default().fg(theme.colors.secondary),
         )));
         frame.render_widget(hint, input_chunks[0]);
 
@@ -167,7 +147,7 @@ impl MainChatArea {
         let prompt = ">>> ";
         let input_line = Line::from(vec![
             Span::styled(prompt, Style::default().fg(theme.colors.primary)),
-            Span::styled(&self.input_text, theme.typography.body_style),
+            Span::styled(&self.input_text, Style::default().fg(theme.colors.text_primary)),
         ]);
 
         let input_paragraph = Paragraph::new(vec![input_line])
@@ -225,9 +205,9 @@ impl MainChatArea {
 
         // Message header with role and timestamp
         let (role_icon, role_color) = match message.role.as_str() {
-            "user" => ("👤", theme.colors.user_message),
-            "assistant" => ("🤖", theme.colors.assistant_message),
-            "system" => ("⚙️", theme.colors.system_message),
+            "user" => ("👤", theme.colors.primary),
+            "assistant" => ("🤖", theme.colors.secondary),
+            "system" => ("⚙️", theme.colors.warning),
             _ => ("📝", theme.colors.text_primary),
         };
 
@@ -239,7 +219,7 @@ impl MainChatArea {
             ),
             Span::styled(
                 format!("[{}]", timestamp_str),
-                theme.typography.caption_style,
+                Style::default().fg(theme.colors.secondary),
             ),
         ]);
         lines.push(header_line);
@@ -249,7 +229,7 @@ impl MainChatArea {
         for content_line in content_lines {
             lines.push(Line::from(Span::styled(
                 format!("  {}", content_line),
-                theme.typography.body_style,
+                Style::default().fg(theme.colors.text_primary),
             )));
         }
 
@@ -274,7 +254,7 @@ impl MainChatArea {
         if let Some(tokens) = message.metadata.tokens {
             lines.push(Line::from(Span::styled(
                 format!("  📊 {} tokens", tokens),
-                theme.typography.caption_style,
+                Style::default().fg(theme.colors.secondary),
             )));
         }
 
@@ -292,7 +272,7 @@ impl MainChatArea {
                 Span::styled(
                     "🤖 AI: ",
                     Style::default()
-                        .fg(theme.colors.assistant_message)
+                        .fg(theme.colors.secondary)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
@@ -327,54 +307,50 @@ impl MainChatArea {
     pub fn handle_input(&mut self, key: KeyEvent) -> ChatAction {
         match key.code {
             KeyCode::Enter => {
-                if !self.input_text.trim().is_empty() {
-                    ChatAction::SendMessage
-                } else {
-                    ChatAction::SendMessage // Allow empty messages for now
-                }
+                ChatAction::SendMessage
             }
             KeyCode::Char(c) => {
                 self.input_text.insert(self.cursor_position, c);
                 self.cursor_position += 1;
-                ChatAction::SendMessage // Return a default action
+                ChatAction::None
             }
             KeyCode::Backspace => {
                 if self.cursor_position > 0 {
                     self.input_text.remove(self.cursor_position - 1);
                     self.cursor_position -= 1;
                 }
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::Delete => {
                 if self.cursor_position < self.input_text.len() {
                     self.input_text.remove(self.cursor_position);
                 }
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::Left => {
                 if self.cursor_position > 0 {
                     self.cursor_position -= 1;
                 }
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::Right => {
                 if self.cursor_position < self.input_text.len() {
                     self.cursor_position += 1;
                 }
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::Home => {
                 self.cursor_position = 0;
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::End => {
                 self.cursor_position = self.input_text.len();
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::Esc => {
                 self.input_text.clear();
                 self.cursor_position = 0;
-                ChatAction::ClearInput
+                ChatAction::None
             }
             KeyCode::PageUp => {
                 self.scroll_up(5);
@@ -395,7 +371,7 @@ impl MainChatArea {
             KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 ChatAction::ClearHistory
             }
-            _ => ChatAction::SendMessage, // Default action
+            _ => ChatAction::None,
         }
     }
 

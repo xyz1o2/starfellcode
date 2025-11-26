@@ -1,214 +1,54 @@
 use crate::ui::types::{
     InfoSection, ModelInfoSection, TokenStatsSection, HelpInfoSection, 
     ErrorLogSection, SessionStatsSection, ErrorEntry, ErrorLevel, 
-    ShortcutInfo, ConnectionStatus
+    ConnectionStatus
 };
 use crate::ui::theme::ModernTheme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
-    style::{Style, Modifier},
+    style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, List, ListItem, Gauge, Wrap},
+    widgets::{Block, Borders, Paragraph, List, ListItem, Wrap},
     Frame,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use chrono::{DateTime, Utc};
+use crossterm::event::{KeyCode, KeyEvent};
+use chrono::Utc;
 use std::time::Duration;
 
 pub struct InfoPanel {
     pub sections: Vec<InfoSection>,
     pub active_section: usize,
-    pub auto_update: bool,
-    pub scroll_offset: usize,
 }
 
 impl InfoPanel {
     pub fn new() -> Self {
-        let mut panel = Self {
+        Self {
             sections: Vec::new(),
             active_section: 0,
-            auto_update: true,
-            scroll_offset: 0,
-        };
-        
-        panel.init_default_sections();
-        panel
-    }
-
-    /// Initialize default info panel sections
-    fn init_default_sections(&mut self) {
-        // Model Info Section
-        let model_info = InfoSection::ModelInfo(ModelInfoSection {
-            current_model: "Not configured".to_string(),
-            provider: "None".to_string(),
-            temperature: 0.7,
-            max_tokens: 2048,
-            connection_status: ConnectionStatus::Disconnected,
-        });
-
-        // Token Stats Section
-        let token_stats = InfoSection::TokenStats(TokenStatsSection {
-            tokens_used: 0,
-            tokens_remaining: None,
-            cost_estimate: None,
-            session_tokens: 0,
-        });
-
-        // Help Info Section
-        let help_info = InfoSection::HelpInfo(HelpInfoSection {
-            current_context: "Main Chat".to_string(),
-            available_shortcuts: vec![
-                ShortcutInfo {
-                    key: "Tab".to_string(),
-                    description: "Switch between panels".to_string(),
-                    context: "Global".to_string(),
-                },
-                ShortcutInfo {
-                    key: "Ctrl+C".to_string(),
-                    description: "Exit application".to_string(),
-                    context: "Global".to_string(),
-                },
-                ShortcutInfo {
-                    key: "Ctrl+L".to_string(),
-                    description: "Clear chat history".to_string(),
-                    context: "Chat".to_string(),
-                },
-                ShortcutInfo {
-                    key: "F1".to_string(),
-                    description: "Show help".to_string(),
-                    context: "Global".to_string(),
-                },
-            ],
-            tips: vec![
-                "Use /help to see available commands".to_string(),
-                "Use @mentions to reference context".to_string(),
-                "Press Escape to clear input".to_string(),
-            ],
-        });
-
-        // Error Log Section
-        let error_log = InfoSection::ErrorLog(ErrorLogSection {
-            errors: Vec::new(),
-            max_entries: 50,
-        });
-
-        // Session Stats Section
-        let session_stats = InfoSection::SessionStats(SessionStatsSection {
-            session_duration: Duration::from_secs(0),
-            messages_sent: 0,
-            messages_received: 0,
-            average_response_time: None,
-        });
-
-        self.sections = vec![model_info, token_stats, help_info, error_log, session_stats];
+        }
     }
 
     /// Render the info panel
-    pub fn render(&self, frame: &mut Frame, area: Rect, focused: bool, theme: &ModernTheme) {
-        let border_style = theme.get_border_style(focused);
-        
+    pub fn render(&self, frame: &mut Frame, area: Rect, theme: &ModernTheme) {
+        if self.sections.is_empty() {
+            return;
+        }
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" ℹ️ Information ")
+            .title(" ℹ️ Info ")
             .title_alignment(Alignment::Left)
-            .border_style(border_style);
+            .border_style(theme.get_border_style(false));
 
-        let inner_area = block.inner(area);
+        let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        if inner_area.height < 3 {
-            return; // Not enough space to render content
-        }
-
-        // Create section tabs
-        let tab_height = 2;
-        let content_height = inner_area.height.saturating_sub(tab_height);
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(tab_height),
-                Constraint::Length(content_height),
-            ])
-            .split(inner_area);
-
-        // Render section tabs
-        self.render_section_tabs(frame, chunks[0], theme, focused);
-
-        // Render active section content
-        if self.active_section < self.sections.len() {
-            self.render_section_content(
-                frame,
-                &self.sections[self.active_section],
-                chunks[1],
-                theme,
-                focused,
-            );
-        }
-    }
-
-    /// Render section tabs
-    fn render_section_tabs(&self, frame: &mut Frame, area: Rect, theme: &ModernTheme, focused: bool) {
-        let tab_names = vec!["Model", "Tokens", "Help", "Errors", "Stats"];
-        let tab_width = area.width / tab_names.len() as u16;
-
-        let mut tab_lines = Vec::new();
-        let mut tab_line = Vec::new();
-
-        for (i, name) in tab_names.iter().enumerate() {
-            let is_active = i == self.active_section;
-            let style = if is_active && focused {
-                theme.get_selection_style()
-            } else if is_active {
-                Style::default().fg(theme.colors.primary)
-            } else {
-                theme.typography.caption_style
-            };
-
-            let tab_text = format!(" {} ", name);
-            let padding = tab_width.saturating_sub(tab_text.len() as u16);
-            let padded_text = format!("{}{}", tab_text, " ".repeat(padding as usize));
-
-            tab_line.push(Span::styled(padded_text, style));
-        }
-
-        tab_lines.push(Line::from(tab_line));
-        
-        // Add separator line
-        tab_lines.push(Line::from(Span::styled(
-            "─".repeat(area.width as usize),
-            theme.borders.section_border.fg.unwrap_or(theme.colors.border_inactive),
-        )));
-
-        let tabs_paragraph = Paragraph::new(tab_lines);
-        frame.render_widget(tabs_paragraph, area);
-    }
-
-    /// Render section content
-    fn render_section_content(
-        &self,
-        frame: &mut Frame,
-        section: &InfoSection,
-        area: Rect,
-        theme: &ModernTheme,
-        focused: bool,
-    ) {
-        match section {
-            InfoSection::ModelInfo(model_section) => {
-                self.render_model_info_section(frame, model_section, area, theme);
-            }
-            InfoSection::TokenStats(token_section) => {
-                self.render_token_stats_section(frame, token_section, area, theme);
-            }
-            InfoSection::HelpInfo(help_section) => {
-                self.render_help_info_section(frame, help_section, area, theme);
-            }
-            InfoSection::ErrorLog(error_section) => {
-                self.render_error_log_section(frame, error_section, area, theme);
-            }
-            InfoSection::SessionStats(stats_section) => {
-                self.render_session_stats_section(frame, stats_section, area, theme);
-            }
+        match &self.sections[self.active_section] {
+            InfoSection::ModelInfo(section) => self.render_model_info_section(frame, section, inner, theme),
+            InfoSection::TokenStats(section) => self.render_token_stats_section(frame, section, inner, theme),
+            InfoSection::HelpInfo(section) => self.render_help_info_section(frame, section, inner, theme),
+            InfoSection::ErrorLog(section) => self.render_error_log_section(frame, section, inner, theme),
+            InfoSection::SessionStats(section) => self.render_session_stats_section(frame, section, inner, theme),
         }
     }
 
@@ -222,21 +62,6 @@ impl InfoPanel {
     ) {
         let mut lines = Vec::new();
 
-        // Connection status
-        let (status_text, status_color) = match &section.connection_status {
-            ConnectionStatus::Connected => ("🟢 Connected", theme.colors.success),
-            ConnectionStatus::Connecting => ("🟡 Connecting...", theme.colors.warning),
-            ConnectionStatus::Disconnected => ("🔴 Disconnected", theme.colors.error),
-            ConnectionStatus::Error(msg) => ("❌ Error", theme.colors.error),
-        };
-
-        lines.push(Line::from(vec![
-            Span::styled("Status: ", theme.typography.body_style),
-            Span::styled(status_text, Style::default().fg(status_color)),
-        ]));
-        lines.push(Line::from(""));
-
-        // Model details
         lines.push(Line::from(vec![
             Span::styled("Model: ", theme.typography.body_style),
             Span::styled(&section.current_model, Style::default().fg(theme.colors.primary)),
@@ -244,13 +69,13 @@ impl InfoPanel {
 
         lines.push(Line::from(vec![
             Span::styled("Provider: ", theme.typography.body_style),
-            Span::styled(&section.provider, theme.typography.body_style),
+            Span::styled(&section.provider, Style::default().fg(theme.colors.secondary)),
         ]));
 
         lines.push(Line::from(vec![
             Span::styled("Temperature: ", theme.typography.body_style),
             Span::styled(
-                format!("{:.1}", section.temperature),
+                format!("{:.2}", section.temperature),
                 theme.typography.body_style,
             ),
         ]));
@@ -261,6 +86,18 @@ impl InfoPanel {
                 section.max_tokens.to_string(),
                 theme.typography.body_style,
             ),
+        ]));
+
+        let (status_icon, status_color) = match &section.connection_status {
+            ConnectionStatus::Connected => ("✅", theme.colors.success),
+            ConnectionStatus::Connecting => ("⏳", theme.colors.warning),
+            ConnectionStatus::Disconnected => ("❌", theme.colors.error),
+            ConnectionStatus::Error(_) => ("🚨", theme.colors.error),
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled("Status: ", theme.typography.body_style),
+            Span::styled(status_icon, Style::default().fg(status_color)),
         ]));
 
         let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
@@ -298,15 +135,9 @@ impl InfoPanel {
                 Span::styled("Remaining: ", theme.typography.body_style),
                 Span::styled(remaining.to_string(), theme.typography.body_style),
             ]));
-
-            // Token usage gauge
-            let usage_ratio = section.tokens_used as f64 / (section.tokens_used + remaining) as f64;
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled("Usage:", theme.typography.body_style)));
         }
 
         if let Some(cost) = section.cost_estimate {
-            lines.push(Line::from(""));
             lines.push(Line::from(vec![
                 Span::styled("Est. Cost: $", theme.typography.body_style),
                 Span::styled(

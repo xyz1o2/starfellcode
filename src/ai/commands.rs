@@ -8,6 +8,19 @@ pub enum CommandType {
     MaxTokens,
     Provider,
     Status,
+    // 新增的配置命令
+    SetProvider,    // /set-provider <provider>
+    SetApiKey,      // /set-api-key <key>
+    SetModel,       // /set-model <model>
+    SetBaseUrl,     // /set-base-url <url>
+    ConfigOpenAI,   // /config-openai <api_key> [model]
+    ConfigClaude,   // /config-claude <api_key> [model]
+    ConfigGemini,   // /config-gemini <api_key> [model]
+    ConfigOllama,   // /config-ollama [model] [base_url]
+    ConfigLocal,    // /config-local <url> [model]
+    ListProviders,  // /list-providers
+    SaveConfig,     // /save-config
+    LoadConfig,     // /load-config
     Unknown,
 }
 
@@ -57,6 +70,19 @@ impl CommandParser {
             "tokens" | "max_tokens" => CommandType::MaxTokens,
             "provider" | "p" => CommandType::Provider,
             "status" | "s" => CommandType::Status,
+            // 新增的配置命令
+            "set-provider" | "sp" => CommandType::SetProvider,
+            "set-api-key" | "sak" => CommandType::SetApiKey,
+            "set-model" | "sm" => CommandType::SetModel,
+            "set-base-url" | "sbu" => CommandType::SetBaseUrl,
+            "config-openai" | "openai" => CommandType::ConfigOpenAI,
+            "config-claude" | "claude" => CommandType::ConfigClaude,
+            "config-gemini" | "gemini" => CommandType::ConfigGemini,
+            "config-ollama" | "ollama" => CommandType::ConfigOllama,
+            "config-local" | "local" => CommandType::ConfigLocal,
+            "list-providers" | "lp" => CommandType::ListProviders,
+            "save-config" | "save" => CommandType::SaveConfig,
+            "load-config" | "load" => CommandType::LoadConfig,
             _ => CommandType::Unknown,
         };
 
@@ -146,16 +172,38 @@ impl CommandParser {
     pub fn get_help() -> String {
         r#"
 ╔════════════════════════════════════════════════════════════════╗
-║                    可用命令                                    ║
+║                    基础命令                                    ║
 ╠════════════════════════════════════════════════════════════════╣
 ║ /help, /h              - 显示此帮助信息                        ║
 ║ /clear, /c             - 清除聊天历史                          ║
 ║ /history, /hist        - 显示聊天历史                          ║
+║ /status, /s            - 显示应用状态                          ║
+║ /list-providers, /lp   - 列出所有可用的 AI 提供商              ║
+╠════════════════════════════════════════════════════════════════╣
+║                    配置命令                                    ║
+╠════════════════════════════════════════════════════════════════╣
+║ /provider, /p          - 显示当前 LLM 提供商                   ║
 ║ /model, /m [name]      - 显示或设置模型                        ║
 ║ /temp, /temperature N  - 设置温度参数 (0.0-1.0)               ║
 ║ /tokens, /max_tokens N - 设置最大令牌数                        ║
-║ /provider, /p          - 显示当前 LLM 提供商                   ║
-║ /status, /s            - 显示应用状态                          ║
+║                                                                ║
+║ /set-provider, /sp <provider>    - 切换 AI 提供商              ║
+║ /set-api-key, /sak <key>         - 设置 API 密钥               ║
+║ /set-model, /sm <model>          - 设置模型名称                ║
+║ /set-base-url, /sbu <url>        - 设置基础 URL                ║
+╠════════════════════════════════════════════════════════════════╣
+║                    快速配置                                    ║
+╠════════════════════════════════════════════════════════════════╣
+║ /openai <api_key> [model]        - 快速配置 OpenAI             ║
+║ /claude <api_key> [model]        - 快速配置 Claude             ║
+║ /gemini <api_key> [model]        - 快速配置 Gemini             ║
+║ /ollama [model] [url]            - 快速配置 Ollama (本地)      ║
+║ /local <url> [model]             - 快速配置本地服务器          ║
+╠════════════════════════════════════════════════════════════════╣
+║                    配置管理                                    ║
+╠════════════════════════════════════════════════════════════════╣
+║ /save-config, /save              - 保存当前配置到 .env         ║
+║ /load-config, /load              - 从 .env 重新加载配置        ║
 ╠════════════════════════════════════════════════════════════════╣
 ║                    可用提及                                    ║
 ╠════════════════════════════════════════════════════════════════╣
@@ -163,6 +211,15 @@ impl CommandParser {
 ║ @provider              - 提及当前提供商                        ║
 ║ @history               - 提及聊天历史                          ║
 ║ @file [filename]       - 提及文件内容                          ║
+╠════════════════════════════════════════════════════════════════╣
+║                    使用示例                                    ║
+╠════════════════════════════════════════════════════════════════╣
+║ /openai sk-xxx gpt-4             - 配置 OpenAI GPT-4          ║
+║ /claude claude-key claude-3-opus - 配置 Claude Opus           ║
+║ /gemini gemini-key gemini-pro    - 配置 Gemini Pro            ║
+║ /ollama llama2                   - 使用本地 Llama2            ║
+║ /sp openai                       - 切换到 OpenAI 提供商        ║
+║ /sm gpt-4-turbo                  - 切换到 GPT-4 Turbo         ║
 ╚════════════════════════════════════════════════════════════════╝
 "#.to_string()
     }

@@ -2,8 +2,8 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
 };
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PanelType {
@@ -87,7 +87,6 @@ pub enum PanelAction {
     FocusNext,
     FocusPrevious,
     FocusSidebar,
-    FocusChat,
     FocusInfo,
     ToggleSidebar,
     ToggleInfoPanel,
@@ -95,6 +94,7 @@ pub enum PanelAction {
 
 #[derive(Clone, Debug)]
 pub enum ChatAction {
+    None,
     SendMessage,
     ClearInput,
     ScrollUp,
