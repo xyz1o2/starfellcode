@@ -47,17 +47,15 @@ impl FileSearchEngine {
         for result in walker {
             if let Ok(entry) = result {
                 let path = entry.path().to_path_buf();
+                let path_str = path.to_string_lossy();
                 
-                // 跳过目录，只保留文件
-                if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                    // 跳过 target 目录中的文件（编译产物）
-                    let path_str = path.to_string_lossy();
-                    if !path_str.contains("target/") 
-                        && !path_str.contains("target\\")
-                        && !path_str.contains(".git/")
-                        && !path_str.contains(".git\\") {
-                        self.cache.push(path);
-                    }
+                // 跳过 target 和 .git 目录中的内容
+                if !path_str.contains("target/") 
+                    && !path_str.contains("target\\")
+                    && !path_str.contains(".git/")
+                    && !path_str.contains(".git\\") {
+                    // 同时保留文件和目录
+                    self.cache.push(path);
                 }
             }
         }

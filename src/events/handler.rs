@@ -334,9 +334,9 @@ impl EventHandler {
                         // 替换 @ 后的内容为选中的文件路径
                         let at_pos = app.input_text.rfind('@').unwrap_or(0);
                         app.input_text.truncate(at_pos);
-                        // 保留 @ 符号，添加文件路径和空格（防止后续输入触发搜索）
+                        // 保留 @ 符号，添加文件路径和空格
                         app.input_text.push_str(&selected);
-                        app.input_text.push(' ');  // 添加空格，防止搜索被触发
+                        app.input_text.push(' '); // 添加空格，这样后续输入不会立即触发搜索
                         app.mention_suggestions.close();
                         app.file_search.clear();
                     }
@@ -392,26 +392,31 @@ impl EventHandler {
             }
             KeyCode::Char(c) => {
                 app.input_text.push(c);
-                
-                // 检查是否包含 @ 符号，如果有则显示文件建议
-                if app.input_text.contains('@') {
-                    // 第一次检测到 @ 时激活
-                    if !app.mention_suggestions.visible {
-                        app.mention_suggestions.activate('@');
-                        // 缓存已在应用启动时构建，这里直接使用
+
+                // 检查最后一个 '@' 之后是否有空格
+                if let Some(at_pos) = app.input_text.rfind('@') {
+                    let after_at = &app.input_text[at_pos + 1..];
+                    if after_at.contains(' ') {
+                        // 如果@之后有空格，说明用户已经选完了，关闭建议
+                        app.mention_suggestions.close();
+                        app.file_search.clear();
+                    } else {
+                        // @之后没有空格，是正在输入，触发搜索
+                        if !app.mention_suggestions.visible {
+                            app.mention_suggestions.activate('@');
+                        }
+                        app.file_search.update_query(app.input_text.clone());
+                        app.mention_suggestions.suggestions = app.file_search.results.clone();
+                        app.mention_suggestions.selected_index = app.file_search.selected_index;
+                        app.mention_suggestions.visible = !app.file_search.results.is_empty();
                     }
-                    // 使用文件搜索引擎更新查询（快速查询，不遍历目录）
-                    app.file_search.update_query(app.input_text.clone());
-                    app.mention_suggestions.suggestions = app.file_search.results.clone();
-                    app.mention_suggestions.selected_index = app.file_search.selected_index;
-                    app.mention_suggestions.visible = !app.file_search.results.is_empty();
                 } else {
-                    // 否则关闭提及建议，更新命令提示
+                    // 没有@符号，处理普通命令提示
                     app.mention_suggestions.close();
                     app.file_search.clear();
                     app.command_hints.update_input(&app.input_text);
                 }
-                
+
                 AppAction::None
             }
             _ => AppAction::None,
