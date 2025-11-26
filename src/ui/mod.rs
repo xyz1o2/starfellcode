@@ -1,13 +1,13 @@
 pub mod layout;
 pub mod sidebar;
-pub mod main_chat;
 pub mod info_panel;
 pub mod theme;
 pub mod focus;
 pub mod types;
 pub mod command_hints;
+pub mod mention_suggestions;
 
-pub use theme::ModernTheme;
+use crate::ui::theme::ModernTheme;
 use crate::app::App;
 use unicode_width::UnicodeWidthStr;
 use ratatui::{
@@ -323,18 +323,24 @@ pub fn render_history(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(history, area);
 }
 
-pub fn render_input(f: &mut Frame, app: &App, area: Rect) {
-    // 将接收到的区域分割为输入区和提示区
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(4), // 固定输入区高度为4
-            Constraint::Min(0),    // 剩余空间给提示区
-        ])
-        .split(area);
-
-    let input_area = chunks[0];
-    let hints_area = chunks[1];
+pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
+    // 动态决定是否显示提示区
+    let show_hints = app.mention_suggestions.visible || app.command_hints.visible;
+    
+    let (input_area, hints_area) = if show_hints && area.height > 8 {
+        // 如果需要显示提示且有足够空间，分割区域
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(4), // 输入框
+                Constraint::Min(4),    // 提示区最小4行
+            ])
+            .split(area);
+        (chunks[0], chunks[1])
+    } else {
+        // 否则只显示输入框
+        (area, Rect::default())
+    };
 
     // 在 input_area 中渲染输入框
     let input_chunks = Layout::default()
@@ -370,9 +376,19 @@ pub fn render_input(f: &mut Frame, app: &App, area: Rect) {
         f.set_cursor(cursor_x, cursor_y);
     }
 
-    // 在 hints_area 中渲染命令提示
-    if app.command_hints.visible && hints_area.height > 0 {
-        app.command_hints.render(f, hints_area, &ModernTheme::dark_professional());
+    // 在 hints_area 中渲染命令提示或提及建议
+    if hints_area.height > 0 && hints_area.width > 0 {
+        if app.mention_suggestions.visible {
+            // 清除背景
+            f.render_widget(ratatui::widgets::Clear, hints_area);
+            // 需要可变引用来更新 ListState
+            let mention_suggestions = &mut app.mention_suggestions;
+            mention_suggestions.render(f, hints_area);
+        } else if app.command_hints.visible {
+            // 清除背景
+            f.render_widget(ratatui::widgets::Clear, hints_area);
+            app.command_hints.render(f, hints_area, &ModernTheme::dark_professional());
+        }
     }
 }
 

@@ -78,7 +78,9 @@ async fn run_app<B: ratatui::backend::Backend>(
         tokio::select! {
             // 渲染 UI
             _ = interval.tick() => {
-                terminal.draw(|f| app.render(f))?;
+                terminal.draw(|f| {
+                    app.render(f);
+                })?;
             }
 
             // 处理终端事件

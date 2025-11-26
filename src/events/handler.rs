@@ -327,29 +327,75 @@ impl EventHandler {
                     AppAction::Quit
                 }
             }
-            KeyCode::Enter => AppAction::SubmitChat,
+            KeyCode::Enter => {
+                // Enter - 如果有提及建议被选中，则插入；否则提交聊天
+                if app.mention_suggestions.visible {
+                    if let Some(selected) = app.mention_suggestions.get_selected() {
+                        // 替换 @ 后的内容为选中的文件路径
+                        let at_pos = app.input_text.rfind('@').unwrap_or(0);
+                        app.input_text.truncate(at_pos);
+                        app.input_text.push_str(&selected);
+                        app.mention_suggestions.close();
+                    }
+                    AppAction::None
+                } else {
+                    AppAction::SubmitChat
+                }
+            }
             KeyCode::Backspace => {
                 app.input_text.pop();
-                app.command_hints.update_input(&app.input_text);
+                
+                // 如果提及建议可见，更新或关闭
+                if app.mention_suggestions.visible {
+                    if app.input_text.contains('@') {
+                        app.mention_suggestions.update_query(app.input_text.clone());
+                    } else {
+                        app.mention_suggestions.close();
+                    }
+                } else {
+                    app.command_hints.update_input(&app.input_text);
+                }
+                
                 AppAction::None
             }
             KeyCode::Up => {
-                // 上键 - 滚动聊天历史向上
-                if app.chat_scroll_offset < app.chat_history.get_messages().len().saturating_sub(1) {
-                    app.chat_scroll_offset += 1;
+                // 上键 - 如果提及建议可见，则导航；否则滚动聊天历史
+                if app.mention_suggestions.visible {
+                    app.mention_suggestions.select_previous();
+                } else {
+                    if app.chat_scroll_offset < app.chat_history.get_messages().len().saturating_sub(1) {
+                        app.chat_scroll_offset += 1;
+                    }
                 }
                 AppAction::None
             }
             KeyCode::Down => {
-                // 下键 - 滚动聊天历史向下
-                if app.chat_scroll_offset > 0 {
-                    app.chat_scroll_offset -= 1;
+                // 下键 - 如果提及建议可见，则导航；否则滚动聊天历史
+                if app.mention_suggestions.visible {
+                    app.mention_suggestions.select_next();
+                } else {
+                    if app.chat_scroll_offset > 0 {
+                        app.chat_scroll_offset -= 1;
+                    }
                 }
                 AppAction::None
             }
             KeyCode::Char(c) => {
                 app.input_text.push(c);
-                app.command_hints.update_input(&app.input_text);
+                
+                // 检查是否包含 @ 符号，如果有则显示文件建议
+                if app.input_text.contains('@') {
+                    // 第一次检测到 @ 时激活，之后只更新查询
+                    if !app.mention_suggestions.visible {
+                        app.mention_suggestions.activate('@');
+                    }
+                    app.mention_suggestions.update_query(app.input_text.clone());
+                } else {
+                    // 否则关闭提及建议，更新命令提示
+                    app.mention_suggestions.close();
+                    app.command_hints.update_input(&app.input_text);
+                }
+                
                 AppAction::None
             }
             _ => AppAction::None,

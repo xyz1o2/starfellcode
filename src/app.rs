@@ -74,6 +74,9 @@ pub struct App {
     pub selected_text: String,
     pub selection_start: Option<(u16, u16)>,
     pub selection_end: Option<(u16, u16)>,
+    
+    // @ 提及建议
+    pub mention_suggestions: crate::ui::mention_suggestions::MentionSuggestions,
 }
 
 impl App {
@@ -97,6 +100,7 @@ impl App {
             selected_text: String::new(),
             selection_start: None,
             selection_end: None,
+            mention_suggestions: crate::ui::mention_suggestions::MentionSuggestions::new(),
         }
     }
 
@@ -127,11 +131,65 @@ impl App {
         self.add_user_message(&input);
         self.input_text.clear();
         self.command_hints.clear();
+        self.mention_suggestions.close();
 
         if input.starts_with('/') {
             self.handle_command(&input).await;
         } else {
-            self.start_streaming_chat(&input).await;
+            // 处理 @ 提及并注入文件内容
+            let processed_input = self.process_mentions(&input);
+            self.start_streaming_chat(&processed_input).await;
+        }
+    }
+
+    /// 处理消息中的 @ 提及，读取文件内容并注入
+    fn process_mentions(&self, input: &str) -> String {
+        let mut result = input.to_string();
+        let mut file_contents = String::new();
+
+        // 查找所有 @path 模式
+        let mut i = 0;
+        let chars: Vec<char> = input.chars().collect();
+        
+        while i < chars.len() {
+            if chars[i] == '@' {
+                // 找到 @ 符号，提取路径
+                let mut path = String::new();
+                i += 1;
+                
+                // 收集路径字符（直到空格或结束）
+                while i < chars.len() && chars[i] != ' ' && chars[i] != '\n' {
+                    path.push(chars[i]);
+                    i += 1;
+                }
+                
+                // 尝试读取文件
+                if !path.is_empty() {
+                    match std::fs::read_to_string(&path) {
+                        Ok(content) => {
+                            file_contents.push_str(&format!(
+                                "\n\n<file_content path=\"{}\">\n{}\n</file_content>\n",
+                                path, content
+                            ));
+                            // 从结果中移除 @path
+                            result = result.replace(&format!("@{}", path), "");
+                        }
+                        Err(_) => {
+                            // 文件不存在，保留 @path 在消息中
+                        }
+                    }
+                }
+            } else {
+                i += 1;
+            }
+        }
+
+        // 清理消息（移除多余空格）并添加文件内容
+        let cleaned = result.trim().to_string();
+        if file_contents.is_empty() {
+            cleaned
+        } else {
+            format!("{}{}", cleaned, file_contents)
         }
     }
 
@@ -286,7 +344,7 @@ impl App {
         }
     }
 
-        pub fn render(&self, f: &mut Frame) {
+        pub fn render(&mut self, f: &mut Frame) {
         // 如果有待确认的修改，使用不同的布局
         if self.modification_confirmation_pending && !self.pending_modifications.is_empty() {
             let chunks = Layout::default()
