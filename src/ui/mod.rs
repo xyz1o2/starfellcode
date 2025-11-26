@@ -64,6 +64,54 @@ pub fn render_header(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(header, area);
 }
 
+/// 渲染 Diff 对比
+fn render_diff_lines(lines: &mut Vec<Line>, old_content: &str, new_content: &str, area_width: u16) {
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  ┌─ Diff 对比",
+            Style::default().fg(Color::Magenta),
+        ),
+    ]));
+
+    let old_lines: Vec<&str> = old_content.lines().collect();
+    let new_lines: Vec<&str> = new_content.lines().collect();
+    let max_lines = old_lines.len().max(new_lines.len());
+
+    for i in 0..max_lines {
+        if i < old_lines.len() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "  │ - ",
+                    Style::default().fg(Color::Red),
+                ),
+                Span::styled(
+                    old_lines[i].to_string(),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::DIM),
+                ),
+            ]));
+        }
+        if i < new_lines.len() {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "  │ + ",
+                    Style::default().fg(Color::Green),
+                ),
+                Span::styled(
+                    new_lines[i].to_string(),
+                    Style::default().fg(Color::Green),
+                ),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  └─",
+            Style::default().fg(Color::Magenta),
+        ),
+    ]));
+}
+
 pub fn render_history(f: &mut Frame, app: &App, area: Rect) {
     let mut lines = Vec::new();
 
@@ -103,15 +151,95 @@ pub fn render_history(f: &mut Frame, app: &App, area: Rect) {
                 ),
             ]));
 
-            // 消息内容（支持多行）
-            for content_line in msg.content.lines() {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        "  ",
-                        Style::default().fg(color),
-                    ),
-                    Span::raw(content_line),
-                ]));
+            // 检测 Diff 对比标记
+            if msg.content.contains("📝 显示修改对比") && msg.content.contains("---") {
+                // 这是一个 Diff 消息，提取旧内容和新内容
+                let parts: Vec<&str> = msg.content.split("+++").collect();
+                if parts.len() == 2 {
+                    let old_part = parts[0].trim();
+                    let new_part = parts[1].trim();
+                    
+                    // 显示提示信息
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "  📝 显示修改对比",
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "  (输入 /confirm-modify 确认或 /cancel-modify 取消)",
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+                        ),
+                    ]));
+                    lines.push(Line::from(""));
+                    
+                    render_diff_lines(&mut lines, old_part, new_part, area.width);
+                } else {
+                    // 普通文本行
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "  ",
+                            Style::default().fg(color),
+                        ),
+                        Span::raw(&msg.content),
+                    ]));
+                }
+            } else {
+                // 消息内容 - 支持代码块检测
+                let mut in_code_block = false;
+                let mut code_lang = String::new();
+                
+                for content_line in msg.content.lines() {
+                    // 检测代码块开始
+                    if content_line.trim_start().starts_with("```") {
+                        if !in_code_block {
+                            in_code_block = true;
+                            code_lang = content_line.trim_start()[3..].to_string();
+                            // 代码块开始标记
+                            lines.push(Line::from(vec![
+                                Span::styled(
+                                    "  ┌─ Code",
+                                    Style::default().fg(Color::Magenta),
+                                ),
+                                Span::styled(
+                                    format!(" ({})", if code_lang.is_empty() { "text" } else { &code_lang }),
+                                    Style::default().fg(Color::Magenta).add_modifier(Modifier::DIM),
+                                ),
+                            ]));
+                        } else {
+                            in_code_block = false;
+                            // 代码块结束标记
+                            lines.push(Line::from(vec![
+                                Span::styled(
+                                    "  └─",
+                                    Style::default().fg(Color::Magenta),
+                                ),
+                            ]));
+                        }
+                    } else if in_code_block {
+                        // 代码行 - 使用不同的颜色
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                "  │ ",
+                                Style::default().fg(Color::Magenta),
+                            ),
+                            Span::styled(
+                                content_line.to_string(),
+                                Style::default().fg(Color::Yellow),
+                            ),
+                        ]));
+                    } else {
+                        // 普通文本行
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                "  ",
+                                Style::default().fg(color),
+                            ),
+                            Span::raw(content_line),
+                        ]));
+                    }
+                }
             }
 
             // 消息底部 - 简单分隔

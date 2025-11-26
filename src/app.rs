@@ -5,6 +5,7 @@ use crate::ai::streaming::{StreamHandler, StreamingChatResponse};
 use crate::core::history::ChatHistory;
 use crate::core::message::{Message, Role};
 use crate::ui::command_hints::CommandHints;
+use crate::commands::FileCommandHandler;
 use crate::prompts;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -13,6 +14,24 @@ use ratatui::{
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use crate::ui;
+
+/// 格式化 Diff 对比
+fn format_diff(old: &str, new: &str) -> String {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let max_lines = old_lines.len().max(new_lines.len());
+    
+    let mut result = String::new();
+    for i in 0..max_lines {
+        if i < old_lines.len() {
+            result.push_str(&format!("- {}\n", old_lines[i]));
+        }
+        if i < new_lines.len() {
+            result.push_str(&format!("+ {}\n", new_lines[i]));
+        }
+    }
+    result
+}
 
 #[derive(Debug, PartialEq)]
 pub enum AppAction {
@@ -31,6 +50,7 @@ pub struct App {
     pub stream_handler: Option<StreamHandler>,
     pub streaming_response: Arc<Mutex<StreamingChatResponse>>,
     pub command_hints: CommandHints,
+    pub file_command_handler: FileCommandHandler,
 }
 
 impl App {
@@ -45,6 +65,7 @@ impl App {
             stream_handler: None,
             streaming_response: Arc::new(Mutex::new(StreamingChatResponse::new())),
             command_hints: CommandHints::new(),
+            file_command_handler: FileCommandHandler::new(),
         }
     }
 
@@ -84,6 +105,34 @@ impl App {
     }
 
     async fn handle_command(&mut self, input: &str) {
+        // 首先尝试解析为文件命令
+        if let Some(file_cmd) = FileCommandHandler::parse_command(input) {
+            let result = self.file_command_handler.execute(file_cmd);
+            
+            // 显示命令结果
+            self.chat_history.add_message(Message {
+                role: Role::System,
+                content: result.message.clone(),
+            });
+            
+            // 如果有 Diff 对比，显示它
+            if let Some(diff) = result.diff {
+                let diff_content = format!(
+                    "--- {} (原始)\n+++{} (新版本)\n{}",
+                    diff.file_path,
+                    diff.file_path,
+                    format_diff(&diff.old_content, &diff.new_content)
+                );
+                self.chat_history.add_message(Message {
+                    role: Role::System,
+                    content: diff_content,
+                });
+            }
+            
+            return;
+        }
+
+        // 其次尝试解析为普通命令
         if let Some(cmd) = CommandParser::parse(input) {
             let response = match cmd.command_type {
                 CommandType::Help => CommandParser::get_help_text(),

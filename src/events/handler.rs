@@ -5,6 +5,34 @@ pub struct EventHandler;
 
 impl EventHandler {
     pub fn handle_chat_event(app: &mut App, key: KeyEvent) -> AppAction {
+        // 优先处理文件命令确认对话
+        if app.file_command_handler.has_pending_confirmation() {
+            match key.code {
+                KeyCode::Up => {
+                    app.file_command_handler.move_confirmation_up();
+                    return AppAction::None;
+                }
+                KeyCode::Down => {
+                    app.file_command_handler.move_confirmation_down();
+                    return AppAction::None;
+                }
+                KeyCode::Enter => {
+                    // 执行确认选择
+                    let choice = app.file_command_handler.get_confirmation_choice();
+                    let cmd = crate::commands::FileCommand::ConfirmModify;
+                    // 这里会在后续的命令处理中执行
+                    return AppAction::SubmitChat;
+                }
+                KeyCode::Esc => {
+                    // 取消确认
+                    let cmd = crate::commands::FileCommand::CancelModify;
+                    let _ = app.file_command_handler.execute(cmd);
+                    return AppAction::None;
+                }
+                _ => return AppAction::None,
+            }
+        }
+
         if app.command_hints.visible {
             match key.code {
                 KeyCode::Up => {
