@@ -330,14 +330,15 @@ pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     
     let (input_area, hints_area) = if show_hints {
         // 如果需要显示提示，分割区域
+        // 提示区在上面，输入框在下面（参考 fzf --layout reverse）
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4),  // 输入框（包括边框和提示行）
-                Constraint::Min(5),     // 提示区最小 5 行
+                Constraint::Min(5),     // 提示区最小 5 行（在上面）
+                Constraint::Length(4),  // 输入框（在下面）
             ])
             .split(area);
-        (chunks[0], chunks[1])
+        (chunks[1], chunks[0])  // 注意：输入框在 chunks[1]，提示区在 chunks[0]
     } else {
         // 否则只显示输入框（固定 4 行）
         let chunks = Layout::default()
