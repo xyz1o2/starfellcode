@@ -77,6 +77,9 @@ pub struct App {
     
     // @ 提及建议
     pub mention_suggestions: crate::ui::mention_suggestions::MentionSuggestions,
+    
+    // 文件搜索引擎
+    pub file_search: crate::ui::file_search::FileSearchEngine,
 }
 
 impl App {
@@ -101,6 +104,7 @@ impl App {
             selection_start: None,
             selection_end: None,
             mention_suggestions: crate::ui::mention_suggestions::MentionSuggestions::new(),
+            file_search: crate::ui::file_search::FileSearchEngine::new(),
         }
     }
 
@@ -366,9 +370,9 @@ impl App {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(3), // Header
-                    Constraint::Min(10),   // Chat history (flexible, takes remaining space)
-                    Constraint::Length(if self.command_hints.visible { 10 } else { 4 }), // Input area (max 10 with hints)
+                    Constraint::Length(3),      // Header
+                    Constraint::Min(5),         // Chat history (flexible, takes remaining space)
+                    Constraint::Min(4),         // Input area (flexible, grows when hints visible)
                 ])
                 .split(f.size());
 

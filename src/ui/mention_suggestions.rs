@@ -198,6 +198,9 @@ impl MentionSuggestions {
             )
             .highlight_symbol("> ");
 
+        // 确保 ListState 被正确设置为选中的索引
+        self.state.select(Some(self.selected_index));
+        
         f.render_stateful_widget(list, area, &mut self.state);
     }
 }

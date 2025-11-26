@@ -330,12 +330,15 @@ impl EventHandler {
             KeyCode::Enter => {
                 // Enter - 如果有提及建议被选中，则插入；否则提交聊天
                 if app.mention_suggestions.visible {
-                    if let Some(selected) = app.mention_suggestions.get_selected() {
-                        // 替换 @ 后的内容为选中的文件路径
+                    if let Some(selected) = app.file_search.get_selected() {
+                        // 替换 @ 后的内容为选中的文件路径（不包含 @ 符号）
                         let at_pos = app.input_text.rfind('@').unwrap_or(0);
                         app.input_text.truncate(at_pos);
-                        app.input_text.push_str(&selected);
+                        // 移除 @ 符号，直接使用文件路径
+                        let file_path = selected.trim_start_matches('@');
+                        app.input_text.push_str(file_path);
                         app.mention_suggestions.close();
+                        app.file_search.clear();
                     }
                     AppAction::None
                 } else {
@@ -348,9 +351,14 @@ impl EventHandler {
                 // 如果提及建议可见，更新或关闭
                 if app.mention_suggestions.visible {
                     if app.input_text.contains('@') {
-                        app.mention_suggestions.update_query(app.input_text.clone());
+                        // 使用文件搜索引擎更新
+                        app.file_search.update_query(app.input_text.clone());
+                        app.mention_suggestions.suggestions = app.file_search.results.clone();
+                        app.mention_suggestions.selected_index = app.file_search.selected_index;
+                        app.mention_suggestions.visible = !app.file_search.results.is_empty();
                     } else {
                         app.mention_suggestions.close();
+                        app.file_search.clear();
                     }
                 } else {
                     app.command_hints.update_input(&app.input_text);
@@ -361,7 +369,8 @@ impl EventHandler {
             KeyCode::Up => {
                 // 上键 - 如果提及建议可见，则导航；否则滚动聊天历史
                 if app.mention_suggestions.visible {
-                    app.mention_suggestions.select_previous();
+                    app.file_search.select_previous();
+                    app.mention_suggestions.selected_index = app.file_search.selected_index;
                 } else {
                     if app.chat_scroll_offset < app.chat_history.get_messages().len().saturating_sub(1) {
                         app.chat_scroll_offset += 1;
@@ -372,7 +381,8 @@ impl EventHandler {
             KeyCode::Down => {
                 // 下键 - 如果提及建议可见，则导航；否则滚动聊天历史
                 if app.mention_suggestions.visible {
-                    app.mention_suggestions.select_next();
+                    app.file_search.select_next();
+                    app.mention_suggestions.selected_index = app.file_search.selected_index;
                 } else {
                     if app.chat_scroll_offset > 0 {
                         app.chat_scroll_offset -= 1;
@@ -385,14 +395,20 @@ impl EventHandler {
                 
                 // 检查是否包含 @ 符号，如果有则显示文件建议
                 if app.input_text.contains('@') {
-                    // 第一次检测到 @ 时激活，之后只更新查询
+                    // 第一次检测到 @ 时激活
                     if !app.mention_suggestions.visible {
                         app.mention_suggestions.activate('@');
+                        // 缓存已在应用启动时构建，这里直接使用
                     }
-                    app.mention_suggestions.update_query(app.input_text.clone());
+                    // 使用文件搜索引擎更新查询（快速查询，不遍历目录）
+                    app.file_search.update_query(app.input_text.clone());
+                    app.mention_suggestions.suggestions = app.file_search.results.clone();
+                    app.mention_suggestions.selected_index = app.file_search.selected_index;
+                    app.mention_suggestions.visible = !app.file_search.results.is_empty();
                 } else {
                     // 否则关闭提及建议，更新命令提示
                     app.mention_suggestions.close();
+                    app.file_search.clear();
                     app.command_hints.update_input(&app.input_text);
                 }
                 

@@ -28,6 +28,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create app instance
     let mut app = App::new();
     
+    // Build file search cache at startup (like Gemini CLI's list_directory)
+    // This ensures fast file lookups when user types @
+    eprintln!("📁 Building file cache...");
+    app.file_search.build_cache();
+    eprintln!("✓ File cache built ({} files)", app.file_search.cache.len());
+    
     // Initialize AI client from environment configuration
     match crate::ai::config::LLMConfig::from_env() {
         Ok(config) => {

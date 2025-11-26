@@ -6,6 +6,7 @@ pub mod focus;
 pub mod types;
 pub mod command_hints;
 pub mod mention_suggestions;
+pub mod file_search;
 
 use crate::ui::theme::ModernTheme;
 use crate::app::App;
@@ -327,13 +328,13 @@ pub fn render_input(f: &mut Frame, app: &mut App, area: Rect) {
     // 动态决定是否显示提示区
     let show_hints = app.mention_suggestions.visible || app.command_hints.visible;
     
-    let (input_area, hints_area) = if show_hints && area.height > 8 {
-        // 如果需要显示提示且有足够空间，分割区域
+    let (input_area, hints_area) = if show_hints {
+        // 如果需要显示提示，分割区域
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(4), // 输入框
-                Constraint::Min(4),    // 提示区最小4行
+                Constraint::Length(4),  // 输入框（包括边框和提示行）
+                Constraint::Min(5),     // 提示区最小 5 行
             ])
             .split(area);
         (chunks[0], chunks[1])
