@@ -199,12 +199,6 @@ fn render_input(f: &mut Frame, app: &App, area: Rect) {
 
     // Input box
     let input_text = Line::from(vec![
-        Span::styled(
-            ">>> ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
         Span::raw(&app.chat_input),
     ]);
 
@@ -219,7 +213,7 @@ fn render_input(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(input_widget, input_chunks[1]);
 
     // Set cursor position
-    let cursor_x = input_chunks[1].x + 4 + app.chat_input.len() as u16; // 4 for ">>> "
+    let cursor_x = input_chunks[1].x + 1 + app.chat_input.len() as u16; // 1 for border
     let cursor_y = input_chunks[1].y + 1;
 
     if cursor_x < input_chunks[1].x + input_chunks[1].width - 1 {

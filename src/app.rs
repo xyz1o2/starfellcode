@@ -114,6 +114,12 @@ impl App {
 
     fn handle_command(&mut self, input: &str) {
         if let Some(cmd) = CommandParser::parse_command(input) {
+            // 添加用户命令到聊天历史
+            self.chat_history.push(ChatMessage {
+                role: "user".to_string(),
+                content: input.to_string(),
+            });
+
             let response = match cmd.command_type {
                 CommandType::Help => CommandParser::get_help(),
                 CommandType::Clear => {

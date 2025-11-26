@@ -68,8 +68,10 @@ async fn run_app<B: ratatui::backend::Backend>(
     loop {
         terminal.draw(|f| ui::render_modern_ui(f, app))?;
 
-        if crossterm::event::poll(std::time::Duration::from_millis(50))? {
-            if let Event::Key(key) = crossterm::event::read()? {
+        // 使用阻塞读取并检查按键事件类型
+        if let Ok(Event::Key(key)) = crossterm::event::read() {
+            // 只处理按键按下事件，忽略释放事件
+            if key.kind == crossterm::event::KeyEventKind::Press {
                 let should_continue = crate::events::handler::EventHandler::handle_chat_event(app, key);
                 if !should_continue {
                     return Ok(());
