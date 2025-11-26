@@ -331,12 +331,12 @@ impl EventHandler {
                 // Enter - 如果有提及建议被选中，则插入；否则提交聊天
                 if app.mention_suggestions.visible {
                     if let Some(selected) = app.file_search.get_selected() {
-                        // 替换 @ 后的内容为选中的文件路径（不包含 @ 符号）
+                        // 替换 @ 后的内容为选中的文件路径
                         let at_pos = app.input_text.rfind('@').unwrap_or(0);
                         app.input_text.truncate(at_pos);
-                        // 移除 @ 符号，直接使用文件路径
-                        let file_path = selected.trim_start_matches('@');
-                        app.input_text.push_str(file_path);
+                        // 保留 @ 符号，添加文件路径和空格（防止后续输入触发搜索）
+                        app.input_text.push_str(&selected);
+                        app.input_text.push(' ');  // 添加空格，防止搜索被触发
                         app.mention_suggestions.close();
                         app.file_search.clear();
                     }

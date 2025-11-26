@@ -348,7 +348,7 @@ impl App {
         }
     }
 
-        pub fn render(&mut self, f: &mut Frame) {
+    pub fn render(&mut self, f: &mut Frame) {
         // 如果有待确认的修改，使用不同的布局
         if self.modification_confirmation_pending && !self.pending_modifications.is_empty() {
             let chunks = Layout::default()
@@ -360,19 +360,22 @@ impl App {
                     Constraint::Length(4),      // Input area
                 ])
                 .split(f.size());
-
             ui::render_header(f, self, chunks[0]);
             ui::render_history(f, self, chunks[1]);
             ui::render_confirmation_dialog(f, self, chunks[2]); // 独立的确认对话层
             ui::render_input(f, self, chunks[3]);
         } else {
             // 正常布局
+            // 当有提示时，需要更多空间
+            let show_hints = self.mention_suggestions.visible || self.command_hints.visible;
+            let input_height = if show_hints { 12 } else { 4 };  // 有提示时 12 行，否则 4 行
+            
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(3),      // Header
                     Constraint::Min(5),         // Chat history (flexible, takes remaining space)
-                    Constraint::Length(4),      // Input area (固定 4 行，当有提示时会自动扩展)
+                    Constraint::Length(input_height),  // Input area (动态高度)
                 ])
                 .split(f.size());
 
