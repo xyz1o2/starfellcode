@@ -1,6 +1,28 @@
 use crate::app::{App, AppAction, ModificationChoice};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
+fn estimate_chat_lines(app: &App) -> usize {
+    let mut total = 0;
+    if app.chat_history.is_empty() && !app.is_streaming {
+        return 20; // Estimate for welcome message
+    }
+    
+    for msg in app.chat_history.get_messages() {
+        // 3 lines overhead (header, footer, separator) + content lines
+        total += 3 + msg.content.lines().count();
+    }
+    
+    if app.is_streaming {
+        if let Ok(response) = app.streaming_response.try_lock() {
+             total += 5 + response.content.lines().count();
+        } else {
+             total += 10;
+        }
+    }
+    
+    total
+}
+
 pub struct EventHandler;
 
 impl EventHandler {
@@ -8,7 +30,7 @@ impl EventHandler {
         match mouse.kind {
             MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
                 // 左键按下 - 开始选择
-                app.selection_start = Some((mouse.column, mouse.row));
+                app.selection_end = Some((mouse.column, mouse.row));
                 app.selection_end = None;
                 app.selected_text.clear();
                 AppAction::None
@@ -25,16 +47,18 @@ impl EventHandler {
             }
             MouseEventKind::ScrollUp => {
                 // 鼠标滚轮向上 - 向上滚动聊天历史（看更早的消息）
-                let max_scroll = app.chat_history.get_messages().len().saturating_sub(1);
+                // Increase offset (lines from bottom)
+                let max_scroll = estimate_chat_lines(app);
                 if app.chat_scroll_offset < max_scroll {
-                    app.chat_scroll_offset += 1;
+                    app.chat_scroll_offset += 3; // Scroll faster with mouse
                 }
                 AppAction::None
             }
             MouseEventKind::ScrollDown => {
                 // 鼠标滚轮向下 - 向下滚动聊天历史（看更新的消息）
+                // Decrease offset (lines from bottom)
                 if app.chat_scroll_offset > 0 {
-                    app.chat_scroll_offset -= 1;
+                    app.chat_scroll_offset = app.chat_scroll_offset.saturating_sub(3);
                 }
                 AppAction::None
             }
@@ -93,7 +117,7 @@ impl EventHandler {
                                     // 修改文件
                                     match std::fs::read_to_string(path) {
                                         Ok(content) => {
-                                            let new_content = content.replace(&content, replace);
+                                            let new_content = content.replace(&content, &replace);
                                             match std::fs::write(path, new_content) {
                                                 Ok(_) => {
                                                     app.chat_history.add_message(crate::core::message::Message {
@@ -209,7 +233,7 @@ impl EventHandler {
                                     crate::ai::code_modification::CodeModificationOp::Modify { path, search: _, replace } => {
                                         match std::fs::read_to_string(path) {
                                             Ok(content) => {
-                                                let new_content = content.replace(&content, replace);
+                                                let new_content = content.replace(&content, &replace);
                                                 match std::fs::write(path, new_content) {
                                                     Ok(_) => {
                                                         app.chat_history.add_message(crate::core::message::Message {
@@ -402,7 +426,7 @@ impl EventHandler {
                     }
                 } else {
                     // 向上滚动：增加偏移量以查看更早的消息
-                    let max_scroll = app.chat_history.get_messages().len().saturating_sub(1);
+                    let max_scroll = estimate_chat_lines(app);
                     if app.chat_scroll_offset < max_scroll {
                         app.chat_scroll_offset += 1;
                     }
@@ -427,6 +451,21 @@ impl EventHandler {
                     if app.chat_scroll_offset > 0 {
                         app.chat_scroll_offset -= 1;
                     }
+                }
+                AppAction::None
+            }
+            KeyCode::PageUp => {
+                // 向上翻页
+                let max_scroll = estimate_chat_lines(app);
+                if app.chat_scroll_offset < max_scroll {
+                    app.chat_scroll_offset = app.chat_scroll_offset.saturating_add(10).min(max_scroll);
+                }
+                AppAction::None
+            }
+            KeyCode::PageDown => {
+                // 向下翻页
+                if app.chat_scroll_offset > 0 {
+                    app.chat_scroll_offset = app.chat_scroll_offset.saturating_sub(10);
                 }
                 AppAction::None
             }

@@ -9,7 +9,7 @@ mod commands;
 
 use crate::app::App;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -27,13 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create app instance
     let mut app = App::new();
-    
+
     // Build file search cache at startup (like Gemini CLI's list_directory)
     // This ensures fast file lookups when user types @
     eprintln!("📁 Building file cache...");
     app.file_search.build_cache();
     eprintln!("✓ File cache built ({} files)", app.file_search.cache.len());
-    
+
     // Initialize AI client from environment configuration
     match crate::ai::config::LLMConfig::from_env() {
         Ok(config) => {
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("  See ENV_CONFIG.md for configuration instructions");
         }
     }
-    
+
     // Initialize project context (optional)
     // app.init_project_context(".");
 
@@ -114,7 +114,7 @@ async fn run_app<B: ratatui::backend::Backend>(
             }
 
             // 处理异步 LLM 响应
-            maybe_stream_event = async { 
+            maybe_stream_event = async {
                 if let Some(handler) = app.stream_handler.as_mut() {
                     handler.get_receiver().lock().await.recv().await
                 } else {

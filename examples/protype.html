@@ -1,0 +1,388 @@
+<!DOCTYPE html>  
+<html lang="en">  
+<head>  
+    <meta charset="UTF-8">  
+    <title>Pixel Art AI CLI</title>  
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">  
+    <style>  
+        :root {  
+            --bg-color: #09090b;  
+            --border-dim: #333;  
+            --border-bright: #666;  
+            --ai-color: #a855f7;     /* Purple */  
+            --user-color: #22c55e;   /* Green */  
+            --font-main: 'VT323', monospace;  
+        }  
+  
+        * { box-sizing: border-box; }  
+  
+        body {  
+            background-color: #000;  
+            margin: 0;  
+            height: 100vh;  
+            display: flex;  
+            justify-content: center;  
+            align-items: center;  
+            font-family: var(--font-main);  
+            color: #ddd;  
+            overflow: hidden;  
+        }  
+  
+        /* CRT 效果层 */  
+        .crt-scanline {  
+            position: absolute;  
+            top: 0; left: 0; width: 100%; height: 100%;  
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);  
+            background-size: 100% 4px;  
+            pointer-events: none;  
+            z-index: 10;  
+        }  
+  
+        /* 主窗口 */  
+        .tui-window {  
+            width: 95%;  
+            max-width: 1000px;  
+            height: 92vh;  
+            background-color: var(--bg-color);  
+            border: 2px solid var(--border-dim);  
+            display: flex;  
+            flex-direction: column;  
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);  
+        }  
+  
+        /* === 顶部：历史记录 === */  
+        .history-panel {  
+            flex: 1;  
+            overflow-y: auto;  
+            padding: 20px;  
+            display: flex;  
+            flex-direction: column;  
+            gap: 24px;  
+        }  
+        .history-panel::-webkit-scrollbar { width: 0; } /* 隐藏滚动条 */  
+  
+        /* 消息行布局 */  
+        .msg-row {  
+            display: flex;  
+            gap: 16px;  
+            opacity: 0;  
+            animation: slideIn 0.3s forwards;  
+        }  
+  
+        @keyframes slideIn {  
+            from { transform: translateY(5px); opacity: 0; }  
+            to { transform: translateY(0); opacity: 1; }  
+        }  
+  
+        /* === 8x8 像素头像容器 === */  
+        /* 模拟 Ratatui Canvas 或 Block 字符绘图 */  
+        .pixel-avatar {  
+            width: 48px;  /* 8 * 6px */  
+            height: 48px;  
+            min-width: 48px;  
+            background: #000;  
+            border: 2px solid #222;  
+            display: grid;  
+            grid-template-columns: repeat(8, 1fr);  
+            grid-template-rows: repeat(8, 1fr);  
+            image-rendering: pixelated;  
+        }  
+  
+        .pixel {  
+            width: 100%;  
+            height: 100%;  
+        }  
+  
+        /* 消息气泡 */  
+        .msg-bubble {  
+            display: flex;  
+            flex-direction: column;  
+            flex: 1;  
+            padding-top: 4px;  
+        }  
+  
+        .msg-role {  
+            font-size: 1.2rem;  
+            font-weight: bold;  
+            margin-bottom: 6px;  
+            text-transform: uppercase;  
+            letter-spacing: 1px;  
+        }  
+  
+        .msg-text {  
+            font-size: 1.4rem;  
+            line-height: 1.3;  
+            color: #eee;  
+            white-space: pre-wrap;  
+        }  
+  
+        /* 配色区分 */  
+        .msg-row.ai .msg-role { color: var(--ai-color); }  
+        .msg-row.ai .pixel-avatar { border-color: var(--ai-color); box-shadow: 0 0 8px rgba(168, 85, 247, 0.2); }  
+          
+        .msg-row.user { flex-direction: row-reverse; }  
+        .msg-row.user .msg-role { color: var(--user-color); text-align: right; }  
+        .msg-row.user .msg-text { text-align: right; color: #cfc; }  
+        .msg-row.user .pixel-avatar { border-color: var(--user-color); }  
+  
+        /* === 中间分割线 === */  
+        .status-line {  
+            height: 24px;  
+            background: #222;  
+            color: #777;  
+            display: flex;  
+            align-items: center;  
+            justify-content: space-between;  
+            padding: 0 12px;  
+            font-size: 1.1rem;  
+            border-top: 2px solid var(--border-dim);  
+            border-bottom: 2px solid var(--border-dim);  
+        }  
+  
+        /* === 底部：输入框 === */  
+        .input-panel {  
+            height: 80px;  
+            padding: 12px;  
+            display: flex;  
+            align-items: center;  
+            gap: 12px;  
+            background: #0e0e10;  
+        }  
+  
+        .prompt {  
+            color: var(--user-color);  
+            font-size: 1.5rem;  
+            font-weight: bold;  
+        }  
+  
+        input {  
+            flex: 1;  
+            background: transparent;  
+            border: none;  
+            color: #fff;  
+            font-family: var(--font-main);  
+            font-size: 1.5rem;  
+            outline: none;  
+        }  
+  
+    </style>  
+</head>  
+<body>  
+    <div class="crt-scanline"></div>  
+  
+    <div class="tui-window">  
+        <!-- Log / History -->  
+        <div class="history-panel" id="chatHistory">  
+            <!-- Initial Welcome Message -->  
+            <div class="msg-row ai">  
+                <div class="pixel-avatar" id="initial-avatar"></div>  
+                <div class="msg-bubble">  
+                    <div class="msg-role">System_Bot</div>  
+                    <div class="msg-text">Welcome. I am ready to assist you.</div>  
+                </div>  
+            </div>  
+        </div>  
+  
+        <!-- Status Split -->  
+        <div class="status-line">  
+            <span>STATUS: ONLINE</span>  
+            <span>AVATAR_MODE: 8-BIT</span>  
+        </div>  
+  
+        <!-- Input -->  
+        <div class="input-panel">  
+            <span class="prompt">>></span>  
+            <input type="text" id="userInput" placeholder="Type command..." autofocus autocomplete="off">  
+        </div>  
+    </div>  
+  
+    <script>  
+        /*   
+         * 8x8 PIXEL ART DATA   
+         * 0 = Transparent/Black, 1 = Main Color, 2 = Accent/White  
+         */  
+        const ARTS = {  
+            pacman: {  
+                color: '#fbbf24', // Yellow  
+                grid: [  
+                    0,0,1,1,1,1,0,0,  
+                    0,1,1,1,1,1,1,0,  
+                    1,1,1,1,1,1,1,1,  
+                    1,1,1,1,1,1,0,0,  
+                    1,1,1,1,1,0,0,0,  
+                    1,1,1,1,1,1,0,0,  
+                    0,1,1,1,1,1,1,0,  
+                    0,0,1,1,1,1,0,0  
+                ]  
+            },  
+            ghost: {  
+                color: '#f87171', // Red  
+                grid: [  
+                    0,0,1,1,1,1,0,0,  
+                    0,1,1,1,1,1,1,0,  
+                    1,1,1,1,1,1,1,1,  
+                    1,1,2,1,1,2,1,1,  
+                    1,1,2,1,1,2,1,1,  
+                    1,1,1,1,1,1,1,1,  
+                    1,1,0,1,1,0,1,1,  
+                    1,0,0,1,1,0,0,1  
+                ]  
+            },  
+            smile: {  
+                color: '#facc15', // Yellow  
+                grid: [  
+                    0,0,1,1,1,1,0,0,  
+                    0,1,1,1,1,1,1,0,  
+                    1,1,0,1,1,0,1,1,  
+                    1,1,0,1,1,0,1,1,  
+                    1,1,1,1,1,1,1,1,  
+                    1,0,1,1,1,1,0,1,  
+                    0,1,0,0,0,0,1,0,  
+                    0,0,1,1,1,1,0,0  
+                ]  
+            },  
+            alien: {  
+                color: '#4ade80', // Green  
+                grid: [  
+                    0,0,1,0,0,1,0,0,  
+                    0,0,0,1,1,0,0,0,  
+                    0,0,1,1,1,1,0,0,  
+                    0,1,1,0,1,1,1,0,  
+                    1,1,1,1,1,1,1,1,  
+                    1,0,1,1,1,1,0,1,  
+                    1,0,1,0,0,1,0,1,  
+                    0,0,0,1,1,0,0,0  
+                ]  
+            },  
+            mario_hat: {  
+                color: '#ef4444', // Red  
+                grid: [  
+                    0,0,0,1,1,1,1,1,  
+                    0,0,1,1,1,1,1,1,  
+                    0,0,2,2,2,2,1,2,  
+                    0,2,1,2,2,2,1,2,  
+                    0,2,2,2,2,1,2,2,  
+                    0,2,2,1,1,2,2,2,  
+                    0,0,2,2,2,2,2,0,  
+                    0,0,2,2,2,2,2,0  
+                ]  
+            },  
+             sword: {  
+                color: '#38bdf8', // Blue  
+                grid: [  
+                    0,0,0,0,0,0,0,1,  
+                    0,0,0,0,0,0,1,0,  
+                    0,0,0,0,0,1,0,0,  
+                    0,0,0,0,1,0,0,0,  
+                    0,0,0,1,2,1,0,0,  
+                    0,0,1,0,2,0,1,0,  
+                    0,1,0,0,1,0,0,1,  
+                    1,0,0,0,0,1,1,0  
+                ]  
+            }  
+        };  
+  
+        // 渲染 8x8 格子  
+        function renderAvatar(element, typeName) {  
+            const art = ARTS[typeName] || ARTS.smile;  
+            element.innerHTML = ''; // clear  
+              
+            art.grid.forEach(pixel => {  
+                const div = document.createElement('div');  
+                div.className = 'pixel';  
+                if (pixel === 1) {  
+                    div.style.backgroundColor = art.color;  
+                } else if (pixel === 2) {  
+                    div.style.backgroundColor = '#fff'; // Accent color (eyes/highlights)  
+                } else {  
+                    div.style.backgroundColor = 'transparent';  
+                }  
+                element.appendChild(div);  
+            });  
+        }  
+  
+        // 初始化第一个头像  
+        renderAvatar(document.getElementById('initial-avatar'), 'alien');  
+  
+        const input = document.getElementById('userInput');  
+        const historyPanel = document.getElementById('chatHistory');  
+  
+        // 监听输入  
+        input.addEventListener('keydown', (e) => {  
+            if (e.key === 'Enter') {  
+                const text = input.value.trim();  
+                if (!text) return;  
+  
+                addMessage('user', text);  
+                input.value = '';  
+  
+                // 模拟 AI 回复  
+                setTimeout(() => {  
+                    const keys = Object.keys(ARTS);  
+                    const randomArt = keys[Math.floor(Math.random() * keys.length)];  
+                    const responses = [  
+                        "Command received. Executing logic...",  
+                        "Interesting input. Here is the output.",  
+                        "Compiling resources... Done.",  
+                        "Error: Fun overflow exception."  
+                    ];  
+                    const randomResp = responses[Math.floor(Math.random() * responses.length)];  
+                      
+                    addMessage('ai', randomResp, randomArt);  
+                }, 600);  
+            }  
+        });  
+  
+        function addMessage(role, text, avatarType = 'smile') {  
+            const row = document.createElement('div');  
+            row.className = `msg-row ${role}`;  
+  
+            // 头像容器  
+            const avatarDiv = document.createElement('div');  
+            avatarDiv.className = 'pixel-avatar';  
+              
+            // 只有 AI 才随机显示不同头像，用户固定显示一个（或者空白）  
+            if (role === 'ai') {  
+                renderAvatar(avatarDiv, avatarType);  
+            } else {  
+                // 用户简单的绿色方块脸  
+                renderAvatar(avatarDiv, 'none'); // 这里我偷懒没写用户数据的，你可以自己加  
+                // 简单的用户填充  
+                 avatarDiv.innerHTML = '';  
+                 for(let i=0;i<64;i++) {  
+                     let d = document.createElement('div');   
+                     d.className='pixel';  
+                     // 画个简单的 8x8 笑脸  
+                     if([9,14,17,22,34,37,42,43,44,45].includes(i)) d.style.backgroundColor = '#22c55e';  
+                     avatarDiv.appendChild(d);  
+                 }  
+            }  
+  
+            // 消息气泡  
+            const bubble = document.createElement('div');  
+            bubble.className = 'msg-bubble';  
+              
+            const name = document.createElement('div');  
+            name.className = 'msg-role';  
+            name.textContent = role === 'user' ? 'YOU' : `BOT_${avatarType.toUpperCase()}`;  
+  
+            const content = document.createElement('div');  
+            content.className = 'msg-text';  
+            content.textContent = text;  
+  
+            bubble.appendChild(name);  
+            bubble.appendChild(content);  
+  
+            row.appendChild(avatarDiv);  
+            row.appendChild(bubble);  
+  
+            historyPanel.appendChild(row);  
+            historyPanel.scrollTop = historyPanel.scrollHeight;  
+        }  
+          
+        // 保持聚焦  
+        document.onclick = () => input.focus();  
+  
+    </script>  
+</body>  
+</html>  

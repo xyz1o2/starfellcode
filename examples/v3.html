@@ -1,0 +1,257 @@
+<!DOCTYPE html>  
+<html lang="en">  
+<head>  
+    <meta charset="UTF-8">  
+    <title>Pixel TUI - Tab Switcher</title>  
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">  
+    <style>  
+        :root {  
+            --bg: #050505;  
+            --panel: #111;  
+            --border: #444;  
+            --primary: #22d3ee;  /* Cyan */  
+            --secondary: #f472b6; /* Pink */  
+            --highlight: #eab308; /* Yellow */  
+            --file-row: #1a1a1a;  
+            --font: 'VT323', monospace;  
+        }  
+  
+        body {  
+            background: #000;  
+            color: #ccc;  
+            font-family: var(--font);  
+            margin: 0; height: 100vh;  
+            display: flex; justify-content: center; align-items: center;  
+            overflow: hidden;  
+            user-select: none; /* 防止双击全选影响体验 */  
+        }  
+  
+        .tui-window {  
+            width: 95%; max-width: 1000px; height: 90vh;  
+            background: var(--bg);  
+            border: 2px solid var(--border);  
+            display: flex; flex-direction: column;  
+            box-shadow: 0 0 40px rgba(34, 211, 238, 0.1);  
+        }  
+  
+        /* === TABS HEADER === */  
+        .tabs-bar {  
+            display: flex; border-bottom: 2px solid var(--border);  
+            background: var(--panel);  
+        }  
+        .tab {  
+            padding: 10px 20px; font-size: 1.3em; cursor: pointer;  
+            border-right: 1px solid var(--border); color: #666;  
+            transition: all 0.1s;  
+        }  
+        .tab:hover { background: #222; }  
+        .tab.active {  
+            background: var(--primary); color: #000; font-weight: bold;  
+        }  
+        .tab-key { font-size: 0.8em; margin-right: 8px; opacity: 0.7; }  
+  
+        /* === CONTENT VIEWS === */  
+        .view-container {  
+            flex: 1; position: relative; overflow: hidden; display: flex;  
+        }  
+  
+        /* 默认隐藏所有 View，JS 控制显示 */  
+        .tab-view {  
+            display: none; /* Hidden by default */  
+            flex: 1; flex-direction: column;  
+            width: 100%; height: 100%;  
+        }  
+        .tab-view.active-view { display: flex; }  
+  
+        /* --- VIEW 1: CHAT (F1) --- */  
+        .chat-history {  
+            flex: 1; overflow-y: auto; padding: 20px;  
+            display: flex; flex-direction: column; gap: 20px;  
+        }  
+        .msg-row { display: flex; gap: 15px; }  
+        .avatar-box {  
+            width: 48px; height: 48px; min-width: 48px;  
+            border: 2px solid #333; background: #000;  
+            display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);  
+        }  
+        .pixel { width: 100%; height: 100%; }  
+        .bubble { flex: 1; display: flex; flex-direction: column; }  
+        .role { font-size: 0.9em; font-weight: bold; color: var(--primary); margin-bottom: 5px; }  
+        .text { font-size: 1.2em; line-height: 1.4; }  
+  
+        /* --- VIEW 2: FILES (F2) --- */  
+        .file-list {  
+            padding: 20px; display: flex; flex-direction: column; gap: 8px;  
+            font-family: 'Courier New', monospace;  
+        }  
+        .file-row {  
+            display: flex; justify-content: space-between;  
+            padding: 10px; background: var(--file-row);  
+            border-left: 3px solid transparent; cursor: pointer;  
+        }  
+        .file-row:hover { background: #222; border-left-color: var(--secondary); }  
+        .file-icon { color: var(--highlight); margin-right: 10px; }  
+        .file-stat { color: #666; font-size: 0.9em; }  
+  
+        /* --- VIEW 3: CONFIG (F3) --- */  
+        .config-panel {  
+            padding: 30px; display: flex; flex-direction: column; gap: 15px;  
+        }  
+        .config-item {  
+            display: flex; justify-content: space-between; align-items: center;  
+            border-bottom: 1px solid #222; padding-bottom: 10px;  
+        }  
+        .label { font-size: 1.3em; color: #aaa; }  
+        .value { color: var(--primary); font-weight: bold; font-size: 1.3em; }  
+  
+        /* === INPUT HUD === */  
+        .input-hud {  
+            height: 60px; background: #080808; border-top: 2px solid var(--border);  
+            display: flex; align-items: center; padding: 0 20px; gap: 15px;  
+        }  
+        input {  
+            flex: 1; background: transparent; border: none; color: #fff;  
+            font-family: var(--font); font-size: 1.4em; outline: none;  
+        }  
+  
+    </style>  
+</head>  
+<body>  
+  
+    <div class="tui-window">  
+        <!-- TABS Header -->  
+        <div class="tabs-bar">  
+            <div class="tab active" onclick="switchTab(0)" id="btn-0">  
+                <span class="tab-key">[F1]</span> WORKSPACE  
+            </div>  
+            <div class="tab" onclick="switchTab(1)" id="btn-1">  
+                <span class="tab-key">[F2]</span> FILES  
+            </div>  
+            <div class="tab" onclick="switchTab(2)" id="btn-2">  
+                <span class="tab-key">[F3]</span> SYSTEM  
+            </div>  
+        </div>  
+  
+        <div class="view-container">  
+              
+            <!-- VIEW 1: Chat -->  
+            <div class="tab-view active-view" id="view-0">  
+                <div class="chat-history">  
+                    <div class="msg-row">  
+                        <div class="avatar-box" id="av-sys"></div>  
+                        <div class="bubble">  
+                            <div class="role">SYSTEM</div>  
+                            <div class="text">Workspace loaded. Press F2 to view Files.</div>  
+                        </div>  
+                    </div>  
+                </div>  
+            </div>  
+  
+            <!-- VIEW 2: Files Mockup -->  
+            <div class="tab-view" id="view-1">  
+                <div class="file-list">  
+                    <div style="margin-bottom:10px; color:#888;">> PROJECT ROOT / src</div>  
+                    <div class="file-row">  
+                        <span><span class="file-icon">Rs</span>main.rs</span>  
+                        <span class="file-stat">14kb • Modified</span>  
+                    </div>  
+                    <div class="file-row">  
+                        <span><span class="file-icon">Rs</span>avatar_gen.rs</span>  
+                        <span class="file-stat">8kb • Stable</span>  
+                    </div>  
+                    <div class="file-row">  
+                        <span><span class="file-icon">To</span>Cargo.toml</span>  
+                        <span class="file-stat">1kb • Config</span>  
+                    </div>  
+                    <div class="file-row">  
+                        <span><span class="file-icon">Md</span>README.md</span>  
+                        <span class="file-stat">2kb • Doc</span>  
+                    </div>  
+                </div>  
+            </div>  
+  
+            <!-- VIEW 3: Config Mockup -->  
+            <div class="tab-view" id="view-2">  
+                <div class="config-panel">  
+                    <div class="config-item">  
+                        <span class="label">AI MODEL</span>  
+                        <span class="value">GPT-4o-Mini</span>  
+                    </div>  
+                    <div class="config-item">  
+                        <span class="label">RENDER MODE</span>  
+                        <span class="value">8-BIT (GPU)</span>  
+                    </div>  
+                    <div class="config-item">  
+                        <span class="label">THEME</span>  
+                        <span class="value">CYBERPUNK</span>  
+                    </div>  
+                    <div class="config-item">  
+                        <span class="label">MEMORY USAGE</span>  
+                        <span class="value">128 MB</span>  
+                    </div>  
+                </div>  
+            </div>  
+  
+        </div>  
+  
+        <!-- Bottom Input -->  
+        <div class="input-hud">  
+            <span style="color:var(--secondary); font-weight:bold;">COMMAND ></span>  
+            <input type="text" id="cmd" autofocus placeholder="...">  
+        </div>  
+    </div>  
+  
+    <script>  
+        // === 1. Tab Switching Logic ===  
+        const totalTabs = 3;  
+          
+        function switchTab(index) {  
+            // 1. 更新 Tab 按钮样式  
+            for (let i = 0; i < totalTabs; i++) {  
+                const btn = document.getElementById(`btn-${i}`);  
+                const view = document.getElementById(`view-${i}`);  
+                  
+                if (i === index) {  
+                    btn.classList.add('active');  
+                    view.classList.add('active-view');  
+                } else {  
+                    btn.classList.remove('active');  
+                    view.classList.remove('active-view');  
+                }  
+            }  
+              
+            // 聚焦回输入框，保持键盘操作流畅  
+            document.getElementById('cmd').focus();  
+        }  
+  
+        // === 2. Global Key Listener (F1-F3) ===  
+        document.addEventListener('keydown', (e) => {  
+            // 浏览器通常会把 F1 设为帮助，F3 设为查找  
+            // 我们需要 preventDefault 来拦截它  
+            if (e.key === 'F1') {  
+                e.preventDefault();  
+                switchTab(0);  
+            }  
+            if (e.key === 'F2') {  
+                e.preventDefault();  
+                switchTab(1);  
+            }  
+            if (e.key === 'F3') {  
+                e.preventDefault();  
+                switchTab(2);  
+            }  
+        });  
+  
+        // === 3. Simple Pixel Render (Just to keep style) ===  
+        const sysMap = [0,0,1,1,1,1,0,0, 0,1,1,1,1,1,1,0, 1,1,2,1,1,2,1,1, 1,1,1,1,1,1,1,1, 1,0,1,1,1,1,0,1, 1,0,0,0,0,0,0,1, 0,1,1,0,0,1,1,0, 0,0,1,1,1,1,0,0];  
+        const av = document.getElementById('av-sys');  
+        sysMap.forEach(p => {  
+            const d = document.createElement('div'); d.className = 'pixel';  
+            if(p===1) d.style.backgroundColor = '#22d3ee';  
+            else if(p===2) d.style.backgroundColor = '#fff';  
+            av.appendChild(d);  
+        });  
+  
+    </script>  
+</body>  
+</html>  

@@ -2,20 +2,92 @@ use crate::ai::client::LLMClient;
 use crate::ai::commands::{CommandParser, CommandType};
 use crate::ai::config::LLMConfig;
 use crate::ai::streaming::{StreamHandler, StreamingChatResponse};
-use crate::core::history::ChatHistory;
 use crate::core::message::{Message, Role};
+use crate::core::history::ChatHistory;
 use crate::ui::command_hints::CommandHints;
-use crate::commands::FileCommandHandler;
+use crate::commands::file_commands::FileCommandHandler;
 use crate::prompts;
 use crate::ai::code_modification::{AICodeModificationDetector, CodeModificationOp, CodeDiff, CodeMatcher};
-use ratatui::{
-    layout::{Constraint, Direction, Layout},
-    widgets::ScrollbarState,
-    Frame,
-};
+use ratatui::{Frame, widgets::ScrollbarState};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use crate::ui;
+
+// ============ Action 系统 ============
+
+/// Action - 事件驱动的应用状态管理
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    // 基础操作
+    Quit,
+    Tick,
+    Render,
+    
+    // 输入操作
+    CharInput(char),
+    Backspace,
+    Delete,
+    EnterKey,
+    EscapeKey,
+    
+    // 导航操作
+    ScrollUp,
+    ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    
+    // 聊天操作
+    SendMessage,
+    ClearHistory,
+    
+    // 快捷键
+    Help,
+    Status,
+    
+    // 其他
+    None,
+}
+
+/// Action 队列
+pub struct ActionQueue {
+    queue: Vec<Action>,
+}
+
+impl ActionQueue {
+    pub fn new() -> Self {
+        Self {
+            queue: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, action: Action) {
+        if action != Action::None {
+            self.queue.push(action);
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<Action> {
+        if self.queue.is_empty() {
+            None
+        } else {
+            Some(self.queue.remove(0))
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
+    }
+}
+
+impl Default for ActionQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// 格式化 Diff 对比
 fn format_diff(old: &str, new: &str) -> String {
@@ -72,12 +144,14 @@ pub struct App {
     pub chat_scroll_offset: usize,
     pub scrollbar_state: ScrollbarState,
     
+    // Action 系统
+    pub action_queue: ActionQueue,
+    
     // 输入框滚动
     pub input_scroll_offset: usize,
     
     // 鼠标选择
     pub selected_text: String,
-    pub selection_start: Option<(u16, u16)>,
     pub selection_end: Option<(u16, u16)>,
     
     // @ 提及建议
@@ -85,6 +159,12 @@ pub struct App {
     
     // 文件搜索引擎
     pub file_search: crate::ui::file_search::FileSearchEngine,
+    
+    // 高效渲染引擎
+    pub render_engine: crate::ui::render_engine::RenderEngine,
+    
+    // 动画帧计数
+    pub frame_count: u32,
 }
 
 impl App {
@@ -106,12 +186,14 @@ impl App {
             modification_choice: ModificationChoice::Confirm,
             chat_scroll_offset: 0,
             scrollbar_state: ScrollbarState::default(),
+            action_queue: ActionQueue::new(),
             input_scroll_offset: 0,
             selected_text: String::new(),
-            selection_start: None,
             selection_end: None,
             mention_suggestions: crate::ui::mention_suggestions::MentionSuggestions::new(),
             file_search: crate::ui::file_search::FileSearchEngine::new(),
+            render_engine: crate::ui::render_engine::RenderEngine::new(),
+            frame_count: 0,
         }
     }
 
@@ -356,40 +438,9 @@ impl App {
     }
 
     pub fn render(&mut self, f: &mut Frame) {
-        // 如果有待确认的修改，使用不同的布局
-        if self.modification_confirmation_pending && !self.pending_modifications.is_empty() {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(3),      // Header
-                    Constraint::Min(5),         // Chat history (smaller)
-                    Constraint::Length(8),      // Confirmation dialog
-                    Constraint::Length(4),      // Input area
-                ])
-                .split(f.size());
-            ui::render_header(f, self, chunks[0]);
-            ui::render_history(f, self, chunks[1]);
-            ui::render_confirmation_dialog(f, self, chunks[2]); // 独立的确认对话层
-            ui::render_input(f, self, chunks[3]);
-        } else {
-            // 正常布局
-            // 当有提示时，需要更多空间
-            let show_hints = self.mention_suggestions.visible || self.command_hints.visible;
-            let input_height = if show_hints { 12 } else { 4 };  // 有提示时 12 行，否则 4 行
-            
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(3),      // Header
-                    Constraint::Min(5),         // Chat history (flexible, takes remaining space)
-                    Constraint::Length(input_height),  // Input area (动态高度)
-                ])
-                .split(f.size());
-
-            ui::render_header(f, self, chunks[0]);
-            ui::render_history(f, self, chunks[1]);
-            ui::render_input(f, self, chunks[2]);
-        }
+        // 使用像素艺术风格布局 (v2 - 4x4 头像)
+        self.frame_count = self.frame_count.wrapping_add(1);
+        ui::pixel_layout_v2::render_pixel_layout(f, self);
     }
 
     pub async fn finalize_streaming_response(&mut self) {
