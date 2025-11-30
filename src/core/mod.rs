@@ -14,6 +14,12 @@ pub mod streaming;
 pub mod hooks;
 pub mod routing_strategies;
 pub mod message_history;
+pub mod error_recovery;
+pub mod streaming_optimizer;
+pub mod token_calculator;
+pub mod logger;
+pub mod performance_optimizer;
+pub mod test_suite;
 
 pub use conversation_engine::{
     ConversationEngine, IntentRecognizer, ContextManager, ResponseProcessor,
@@ -34,3 +40,6 @@ pub use hooks::{HookManager, BeforeModelHook, AfterModelHook, BeforeToolSelectio
     AfterToolExecutionHook, OnRetryHook, LoggingHook};
 pub use routing_strategies::{FallbackStrategy, ModelSelectionStrategy, CostOptimizationStrategy, PerformanceStrategy};
 pub use message_history::{MessageHistory, Message, MessageRole, Turn as MessageTurn};
+pub use error_recovery::{ErrorRecovery, RecoverableError, RecoveryStrategy, RecoveryConfig, RecoveryResult};
+pub use streaming_optimizer::{StreamingOptimizer, StreamingOptimizerConfig, OptimizedStreamEvent, PerformanceMetrics};
+pub use token_calculator::{TokenCalculator, TokenEncoding, ModelInfo, TokenStats};
