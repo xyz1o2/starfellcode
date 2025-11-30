@@ -20,3 +20,5 @@ pub mod optimized_renderer;
 pub mod render_engine;
 pub mod pixel_layout;
 pub mod pixel_layout_v2;
+pub mod avatar;
+pub mod svg_avatar;

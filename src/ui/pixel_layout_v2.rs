@@ -9,94 +9,17 @@ use ratatui::{
     Frame,
 };
 use crate::app::App;
+use crate::core::message::Role as AppRole;
+use crate::ui::avatar::{self, PixelData};
+use crate::ui::svg_avatar;
 use std::collections::HashMap;
 
 // ============================================================================
 // 数据结构
 // ============================================================================
 
-/// 像素头像数据
-#[derive(Clone, Debug)]
-pub struct PixelData {
-    pub color: Color,
-    pub map: [u8; 64], // 8x8 = 64 像素（与 examples/v2.html 一致）
-}
+// PixelData 与 8x8 渲染已移动到 `ui::avatar` 模块
 
-/// 紧凑头像 + 侧边有色边框（无顶底边），列宽 = 5 像素 + 2 边框 = 7。
-fn render_avatar_compact_boxed(avatar_data: &PixelData, border: Color) -> Vec<Line<'static>> {
-    let inner = render_avatar_compact(avatar_data);
-    let mut out: Vec<Line<'static>> = Vec::with_capacity(inner.len() + 2);
-    let b = Style::default().bg(border);
-    // 顶部边框（4像素 + 左右各1 = 6 列）
-    out.push(Line::from(Span::styled(" ".repeat(6), b)));
-    for line in inner.into_iter() {
-        let mut spans = Vec::with_capacity(line.spans.len() + 2);
-        spans.push(Span::styled(" ", b));
-        spans.extend(line.spans);
-        spans.push(Span::styled(" ", b));
-        out.push(Line::from(spans));
-    }
-    // 底部边框
-    out.push(Line::from(Span::styled(" ".repeat(6), b)));
-    out
-}
-
-/// 更紧凑的头像：将 8x8 采样为 4x4，然后使用半块字符压缩为 4×2。
-fn render_avatar_compact(avatar_data: &PixelData) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let black = Color::Rgb(0, 0, 0);
-
-    // 采样函数：将目标 [0..4) 映射到源 [0..8)
-    let sample = |r_t: usize, c_t: usize| -> u8 {
-        let sr = (((r_t * 8) + 1) / 4).min(7);
-        let sc = (((c_t * 8) + 1) / 4).min(7);
-        avatar_data.map[sr * 8 + sc]
-    };
-    let to_color = |v: u8| match v {
-        1 => avatar_data.color,
-        2 => Color::White,
-        _ => black,
-    };
-
-    for tr in (0..4).step_by(2) {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for tc in 0..4 {
-            let top = sample(tr, tc);
-            let bottom = sample(tr + 1, tc);
-            spans.push(Span::styled(
-                "▀",
-                Style::default().fg(to_color(top)).bg(to_color(bottom)),
-            ));
-        }
-        lines.push(Line::from(spans));
-    }
-    lines
-}
-
-/// 使用半块字符将 8x8 像素压缩为 8x4 行。
-/// 每个单元用 '▀'，fg 表示上半像素，bg 表示下半像素。
-fn render_avatar_halfblock(avatar_data: &PixelData) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let black = Color::Rgb(0, 0, 0);
-    for row in (0..8).step_by(2) {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for col in 0..8 {
-            let top = avatar_data.map[row * 8 + col];
-            let bottom = avatar_data.map[(row + 1) * 8 + col];
-
-            let to_color = |v: u8| match v {
-                1 => avatar_data.color,
-                2 => Color::White,
-                _ => black,
-            };
-            let fg = to_color(top);
-            let bg = to_color(bottom);
-            spans.push(Span::styled("▀", Style::default().fg(fg).bg(bg)));
-        }
-        lines.push(Line::from(spans));
-    }
-    lines
-}
 
 /// 消息角色
 #[derive(Clone, Debug, PartialEq)]
@@ -182,7 +105,7 @@ pub fn init_avatars() -> HashMap<String, PixelData> {
         "sys".to_string(),
         PixelData {
             color: Color::Rgb(34, 211, 238),
-            map: [
+            map: vec![
                 0,0,1,1,1,1,0,0,
                 0,1,1,1,1,1,1,0,
                 1,1,2,1,1,2,1,1,
@@ -192,6 +115,8 @@ pub fn init_avatars() -> HashMap<String, PixelData> {
                 0,1,1,0,0,1,1,0,
                 0,0,1,1,1,1,0,0,
             ],
+            width: 8,
+            height: 8,
         },
     );
 
@@ -200,7 +125,7 @@ pub fn init_avatars() -> HashMap<String, PixelData> {
         "user".to_string(),
         PixelData {
             color: Color::Rgb(244, 114, 182),
-            map: [
+            map: vec![
                 0,0,1,1,1,1,0,0,
                 0,1,1,1,1,1,1,0,
                 1,1,2,1,1,2,1,1,
@@ -210,6 +135,8 @@ pub fn init_avatars() -> HashMap<String, PixelData> {
                 0,0,1,0,0,1,0,0,
                 0,0,1,1,1,1,0,0,
             ],
+            width: 8,
+            height: 8,
         },
     );
 
@@ -218,7 +145,7 @@ pub fn init_avatars() -> HashMap<String, PixelData> {
         "ai".to_string(),
         PixelData {
             color: Color::Rgb(34, 211, 238),
-            map: [
+            map: vec![
                 0,0,1,1,1,1,0,0,
                 0,1,1,1,1,1,1,0,
                 1,1,1,1,1,1,1,1,
@@ -228,6 +155,8 @@ pub fn init_avatars() -> HashMap<String, PixelData> {
                 0,1,1,1,1,1,1,0,
                 0,0,1,1,1,1,0,0,
             ],
+            width: 8,
+            height: 8,
         },
     );
 
@@ -252,7 +181,7 @@ pub fn render_pixel_layout(f: &mut Frame, app: &App) {
         .constraints([
             Constraint::Min(5),      // 历史区
             Constraint::Length(1),   // 状态栏
-            Constraint::Length(10),  // 输入区（8x8 头像 + 边框 = 10 高）
+            Constraint::Length(8),   // 输入区（纯 8x8，无边框）
         ])
         .split(size);
 
@@ -261,49 +190,9 @@ pub fn render_pixel_layout(f: &mut Frame, app: &App) {
     render_input_area(f, app, chunks[2], &theme);
 }
 
-/// 渲染头像盒子（8x8 内部 + 1 字符边框，宽 10，高 10）。
-fn render_avatar_box(avatar_data: &PixelData, border: Color) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let border_style = Style::default().bg(border);
-    let black = Color::Rgb(0, 0, 0);
-
-    // 顶部边框（10 列：左1 + 内8 + 右1）
-    lines.push(Line::from(vec![Span::styled(" ".repeat(10), border_style)]));
-
-    // 内部 8 行
-    for row in 0..8 {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        // 左边框
-        spans.push(Span::styled(" ", border_style));
-
-        for col in 0..8 {
-            let idx = row * 8 + col;
-            let pixel = avatar_data.map[idx];
-
-            let style = match pixel {
-                0 => Style::default().bg(black), // 透明像素渲染为盒子内部黑色
-                1 => Style::default().bg(avatar_data.color),
-                2 => Style::default().bg(Color::White),
-                _ => Style::default().bg(black),
-            };
-            // 单空格像素（更紧凑）
-            spans.push(Span::styled(" ", style));
-        }
-        // 右边框
-        spans.push(Span::styled(" ", border_style));
-        lines.push(Line::from(spans));
-    }
-
-    // 底部边框
-    lines.push(Line::from(vec![Span::styled(" ".repeat(10), border_style)]));
-
-    lines
-}
 
 /// 渲染历史区域（带头像）
 fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
-    use crate::core::message::Role as AppRole;
-
     let messages = app.chat_history.get_messages();
     let mut y_offset = 0u16;
 
@@ -318,40 +207,6 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
             AppRole::System => ("SYSTEM", Color::Yellow),
         };
 
-        // 头像像素图（与 v2.html 一致）
-        let (avatar_map, pixel_color): ([u8; 64], Color) = match msg.role {
-            AppRole::User => ([
-                0,0,1,1,1,1,0,0,
-                0,1,1,1,1,1,1,0,
-                1,1,2,1,1,2,1,1,
-                1,1,1,1,1,1,1,1,
-                1,1,1,0,0,1,1,1,
-                0,1,1,1,1,1,1,0,
-                0,0,1,0,0,1,0,0,
-                0,0,1,1,1,1,0,0,
-            ], theme.accent_user),
-            AppRole::Assistant => ([
-                0,0,1,1,1,1,0,0,
-                0,1,1,1,1,1,1,0,
-                1,1,1,1,1,1,1,1,
-                1,1,1,1,1,0,0,0,
-                1,1,1,1,0,0,0,0,
-                1,1,1,1,1,0,0,0,
-                0,1,1,1,1,1,1,0,
-                0,0,1,1,1,1,0,0,
-            ], Color::Rgb(250, 204, 21)), // pac 黄
-            AppRole::System => ([
-                0,0,1,1,1,1,0,0,
-                0,1,1,1,1,1,1,0,
-                1,1,2,1,1,2,1,1,
-                1,1,1,1,1,1,1,1,
-                1,0,1,1,1,1,0,1,
-                1,0,0,0,0,0,0,1,
-                0,1,1,0,0,1,1,0,
-                0,0,1,1,1,1,0,0,
-            ], theme.accent_ai),
-        };
-        let avatar_data = PixelData { color: pixel_color, map: avatar_map };
 
         // 渲染内容：角色标签单独一行（匹配 v2.html，添加 $ 前缀）
         let mut content_lines: Vec<Line> = Vec::new();
@@ -369,8 +224,11 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
             content_lines.push(Line::from(line));
         }
 
-        // 重新计算消息高度：8x8 头像盒子高度 10 行 与 内容行数取最大
-        let msg_height = 10u16.max(content_lines.len() as u16);
+        // 计算消息高度：取头像高度(8行)和内容行数的最大值
+        // 但如果内容少于8行，就用内容行数
+        let avatar_height = 8u16;
+        let content_height = content_lines.len() as u16;
+        let msg_height = avatar_height.max(content_height);
         // 更新内容区域高度（通过重建 msg_area/h_layout）
         let msg_area = Rect {
             x: area.x,
@@ -380,13 +238,13 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
         };
         let h_layout = Layout::default()
             .direction(Direction::Horizontal)
-            // 头像列 12：10 宽（8 像素 + 左右各 1 边框）+ 2 列间隙
-            .constraints([Constraint::Length(12), Constraint::Min(10)])
+            // 头像列 10：8 字符（8x8 像素用半块字符显示）+ 2 列间隙
+            .constraints([Constraint::Length(10), Constraint::Min(10)])
             .split(msg_area);
 
-        // 渲染 8x8 头像盒子（边框使用主题边框色）
-        let avatar_lines = render_avatar_box(&avatar_data, theme.border);
-        f.render_widget(Paragraph::new(avatar_lines), h_layout[0]);
+        // 使用 Canvas Widget 渲染头像
+        let avatar_widget = svg_avatar::get_avatar_widget(&msg.role);
+        f.render_widget(avatar_widget, h_layout[0]);
 
         let content_para = Paragraph::new(content_lines).wrap(Wrap { trim: true });
         f.render_widget(content_para, h_layout[1]);
@@ -460,34 +318,18 @@ fn render_status_bar(f: &mut Frame, area: Rect, _theme: &Theme) {
 fn render_input_area(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     // 背景
     f.render_widget(Paragraph::new("").style(Style::default().bg(Color::Rgb(8, 8, 8))), area);
-
     // 水平分割：头像 | 箭头 | 输入框
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(12),  // 8x8 盒子宽 10 + 2 列间隙
+            Constraint::Length(10),  // 8 字符（8x8 像素）+ 2 间隙
             Constraint::Length(2),   // 箭头
             Constraint::Min(10),     // 输入框
         ])
         .split(area);
-
-    // 1. 渲染用户头像（8x8）
-    let user_avatar = PixelData {
-        color: theme.accent_user,
-        map: [
-            0,0,1,1,1,1,0,0,
-            0,1,1,1,1,1,1,0,
-            1,1,2,1,1,2,1,1,
-            1,1,1,1,1,1,1,1,
-            1,1,1,0,0,1,1,1,
-            0,1,1,1,1,1,1,0,
-            0,0,1,0,0,1,0,0,
-            0,0,1,1,1,1,0,0,
-        ],
-    };
-
-    let avatar_lines = render_avatar_box(&user_avatar, theme.border);
-    f.render_widget(Paragraph::new(avatar_lines), chunks[0]);
+    // 使用 Canvas Widget 渲染用户头像
+    let avatar_widget = svg_avatar::get_avatar_widget(&AppRole::User);
+    f.render_widget(avatar_widget, chunks[0]);
 
     // 2. 渲染箭头
     let arrow = "▶";
