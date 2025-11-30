@@ -13,6 +13,7 @@ use chrono::{DateTime, Local};
 use crate::core::{RetryHandler, RetryConfig, RoutingStrategy, CompositeRouter};
 use crate::core::tool_executor::ToolExecutor;
 use crate::core::HookManager;
+use crate::ai::client::LLMClient;
 
 /// 用户意图类型
 #[derive(Debug, Clone)]
@@ -480,9 +481,9 @@ impl ConversationEngine {
         
         // 2. 构建上下文
         let context = ContextManager::build(&input, &intent);
-        
+
         // 3. 路由决策
-        let routing_decision = self.router.route(&context, self.retry_handler.config())
+        let routing_decision = self.router.route(&input, "")
             .await
             .map_err(|e| format!("Routing failed: {}", e))?;
         

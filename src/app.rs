@@ -1,4 +1,4 @@
-use crate::ai::client::LLMClient;
+use crate::ai::client::{LLMClient, ChatMessage};
 use crate::ai::commands::{CommandParser, CommandType};
 use crate::ai::config::LLMConfig;
 use crate::ai::streaming::{StreamHandler, StreamingChatResponse};
@@ -462,10 +462,19 @@ impl App {
                 true
             };
 
-            // 构建完整的提示，包含系统提示和用户消息
-            let full_prompt = format!("System: {}\n\nUser: {}", system_prompt, prompt);
+            // 构建消息数组，包含系统提示和用户消息
+            let messages = vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system_prompt,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt,
+                },
+            ];
 
-            match client.generate_completion_stream(&full_prompt, callback).await {
+            match client.generate_completion_stream(messages, None, callback).await {
                 Ok(_) => {
                     let _ = handler.send_done();
                 }

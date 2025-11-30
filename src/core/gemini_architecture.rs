@@ -13,6 +13,7 @@ use tokio::time::sleep;
 
 use crate::ai::client::{ChatMessage, LLMClient};
 use crate::ai::prompt_builder::{Message as PromptMessage, PromptBuilder};
+use futures_util::future::BoxFuture;
 
 // ============================================================================
 // 1. 流式处理 + 重试机制
@@ -92,7 +93,7 @@ impl ResponseValidator {
         mut operation: F,
     ) -> Result<T, String>
     where
-        F: FnMut() -> futures::future::BoxFuture<'static, Result<T, String>>,
+        F: FnMut() -> BoxFuture<'static, Result<T, String>>,
     {
         let mut delay = self.config.initial_delay_ms;
 
@@ -501,18 +502,22 @@ impl GeminiArchitecture {
         let mut delay = retry_config.initial_delay_ms;
 
         loop {
-            let mut buffer = String::new();
+            use std::sync::Mutex;
+            let buffer = std::sync::Arc::new(Mutex::new(String::new()));
+            let buffer_clone = buffer.clone();
             let result = llm_client
-                .generate_completion_stream(messages.clone(), Some(model.clone()), |chunk| {
-                    buffer.push_str(&chunk);
+                .generate_completion_stream(messages.clone(), Some(model.clone()), move |chunk| {
+                    let mut buf = buffer_clone.lock().unwrap();
+                    buf.push_str(&chunk);
                     true
                 })
                 .await;
 
+            let buffer_content = buffer.lock().unwrap().clone();
             match result {
                 Ok(_) => {
-                    if self.validator.is_valid_response(&buffer) {
-                        return Ok(buffer);
+                    if self.validator.is_valid_response(&buffer_content) {
+                        return Ok(buffer_content);
                     }
                     attempt += 1;
                     if attempt >= max_attempts {

@@ -205,7 +205,7 @@ pub struct ConnectionPool<T: Clone> {
     max_size: usize,
 }
 
-impl<T: Clone + Send + Sync + 'static> ConnectionPool<T> {
+impl<T: Clone + Send + Sync + 'static + PartialEq> ConnectionPool<T> {
     pub fn new<F>(factory: F, max_size: usize) -> Self
     where
         F: Fn() -> T + Send + Sync + 'static,

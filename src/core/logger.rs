@@ -123,8 +123,9 @@ impl Logger {
             entries.push(entry);
 
             // 保持日志大小在限制内
-            if entries.len() > self.max_entries {
-                entries.drain(0..entries.len() - self.max_entries);
+            let len = entries.len();
+            if len > self.max_entries {
+                entries.drain(0..len - self.max_entries);
             }
         }
     }
@@ -235,8 +236,9 @@ impl Telemetry {
         if let Ok(mut metrics) = self.metrics.lock() {
             metrics.push(metric);
 
-            if metrics.len() > self.max_metrics {
-                metrics.drain(0..metrics.len() - self.max_metrics);
+            let len = metrics.len();
+            if len > self.max_metrics {
+                metrics.drain(0..len - self.max_metrics);
             }
         }
     }
