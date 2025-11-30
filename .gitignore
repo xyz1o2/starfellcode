@@ -87,3 +87,5 @@ build/
 *.tar.zst
 ```
 .kiro/
+.claude/
+.spec-workflow/

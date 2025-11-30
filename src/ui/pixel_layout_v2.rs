@@ -10,7 +10,7 @@ use ratatui::{
 };
 use crate::app::App;
 use crate::core::message::Role as AppRole;
-use crate::ui::avatar::{self, PixelData};
+use crate::ui::avatar::PixelData;
 use crate::ui::svg_avatar;
 use std::collections::HashMap;
 
@@ -181,7 +181,7 @@ pub fn render_pixel_layout(f: &mut Frame, app: &App) {
         .constraints([
             Constraint::Min(5),      // 历史区
             Constraint::Length(1),   // 状态栏
-            Constraint::Length(8),   // 输入区（纯 8x8，无边框）
+            Constraint::Length(4),   // 输入区（缩小为 4行）
         ])
         .split(size);
 
@@ -208,25 +208,14 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
         };
 
 
-        // 渲染内容：角色标签单独一行（匹配 v2.html，添加 $ 前缀）
+        // 渲染内容：直接显示消息内容，不包含角色标签
         let mut content_lines: Vec<Line> = Vec::new();
-        content_lines.push(Line::from(vec![
-            Span::styled("$", Style::default().fg(Color::Rgb(136, 136, 136))),
-            Span::raw(" "),
-            Span::styled(
-                role_label,
-                Style::default()
-                    .fg(role_color)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
         for line in msg.content.lines() {
             content_lines.push(Line::from(line));
         }
 
-        // 计算消息高度：取头像高度(8行)和内容行数的最大值
-        // 但如果内容少于8行，就用内容行数
-        let avatar_height = 8u16;
+        // 计算消息高度：取头像高度(4行)和内容行数的最大值
+        let avatar_height = 4u16;
         let content_height = content_lines.len() as u16;
         let msg_height = avatar_height.max(content_height);
         // 更新内容区域高度（通过重建 msg_area/h_layout）
@@ -238,7 +227,7 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
         };
         let h_layout = Layout::default()
             .direction(Direction::Horizontal)
-            // 头像列 10：8 字符（8x8 像素用半块字符显示）+ 2 列间隙
+            // 头像列：4像素 × 2空格/像素 = 8 字符宽 + 2 列间隙
             .constraints([Constraint::Length(10), Constraint::Min(10)])
             .split(msg_area);
 
@@ -322,7 +311,7 @@ fn render_input_area(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(10),  // 8 字符（8x8 像素）+ 2 间隙
+            Constraint::Length(10),  // 4像素 × 2空格 = 8字符 + 2间隙
             Constraint::Length(2),   // 箭头
             Constraint::Min(10),     // 输入框
         ])

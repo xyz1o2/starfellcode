@@ -6,6 +6,7 @@ mod events;
 mod utils;
 mod prompts;
 mod commands;
+mod tools;
 
 use crate::app::App;
 use crossterm::{
