@@ -20,9 +20,9 @@ struct ChatCompletionRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-struct ChatMessage {
-    role: String,
-    content: String,
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,15 +62,13 @@ impl LLMClient {
 
     pub async fn generate_completion_stream(
         &self,
-        prompt: &str,
+        messages: Vec<ChatMessage>,
+        model_override: Option<String>,
         mut callback: impl FnMut(String) -> bool + Send + 'static,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let request_body = ChatCompletionRequest {
-            model: self.config.model.clone(),
-            messages: vec![ChatMessage {
-                role: "user".to_string(),
-                content: prompt.to_string(),
-            }],
+            model: model_override.unwrap_or_else(|| self.config.model.clone()),
+            messages,
             temperature: self.config.temperature,
             max_tokens: self.config.max_tokens,
             stream: true,

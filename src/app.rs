@@ -4,6 +4,7 @@ use crate::ai::config::LLMConfig;
 use crate::ai::streaming::{StreamHandler, StreamingChatResponse};
 use crate::core::message::{Message, Role};
 use crate::core::history::ChatHistory;
+use crate::core::GeminiArchitecture;
 use crate::ui::command_hints::CommandHints;
 use crate::commands::file_commands::FileCommandHandler;
 use crate::prompts;
@@ -166,6 +167,9 @@ pub struct App {
     
     // 动画帧计数
     pub frame_count: u32,
+
+    // Gemini 架构
+    pub gemini: GeminiArchitecture,
 }
 
 impl App {
@@ -196,6 +200,7 @@ impl App {
             file_search: crate::ui::file_search::FileSearchEngine::new(),
             render_engine: crate::ui::render_engine::RenderEngine::new(),
             frame_count: 0,
+            gemini: GeminiArchitecture::new(),
         }
     }
 
@@ -236,7 +241,24 @@ impl App {
         } else {
             // 处理 @ 提及并注入文件内容
             let processed_input = self.process_mentions(&input);
-            self.start_streaming_chat(&processed_input).await;
+
+            match self.gemini.chat(processed_input.clone()).await {
+                Ok(response) => {
+                    self.chat_history.add_message(Message {
+                        role: Role::Assistant,
+                        content: response.clone(),
+                    });
+                    self.scroll_to_bottom();
+                    self.process_ai_response_for_modifications(&response);
+                }
+                Err(err) => {
+                    self.chat_history.add_message(Message {
+                        role: Role::System,
+                        content: format!("❌ Gemini 错误: {}", err),
+                    });
+                    self.scroll_to_bottom();
+                }
+            }
         }
     }
 

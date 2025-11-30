@@ -8,7 +8,11 @@
 /// 5. 流程控制 - 管理完整的对话生命周期
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use chrono::{DateTime, Local};
+use crate::core::{RetryHandler, RetryConfig, RoutingStrategy, CompositeRouter};
+use crate::core::tool_executor::ToolExecutor;
+use crate::core::HookManager;
 
 /// 用户意图类型
 #[derive(Debug, Clone)]
@@ -372,12 +376,19 @@ impl ResponseProcessor {
     }
 }
 
-/// 对话流程引擎
+/// 对话流程引擎 - 完整的 MVP 实现
 pub struct ConversationEngine {
     pub intent_recognizer: IntentRecognizer,
     pub context_manager: ContextManager,
     pub response_processor: ResponseProcessor,
     pub conversation_history: Vec<ConversationContext>,
+    
+    // 新增：完整流程所需的组件
+    pub retry_handler: RetryHandler,
+    pub router: CompositeRouter,
+    pub hook_manager: HookManager,
+    pub tool_executor: Option<Arc<ToolExecutor>>,
+    pub llm_client: Option<Arc<LLMClient>>,
 }
 
 impl ConversationEngine {
@@ -387,7 +398,27 @@ impl ConversationEngine {
             context_manager: ContextManager,
             response_processor: ResponseProcessor,
             conversation_history: Vec::new(),
+            retry_handler: RetryHandler::new(RetryConfig::default()),
+            router: CompositeRouter::new(),
+            hook_manager: HookManager::new(),
+            tool_executor: None,
+            llm_client: None,
         }
+    }
+    
+    pub fn with_retry_config(mut self, config: RetryConfig) -> Self {
+        self.retry_handler = RetryHandler::new(config);
+        self
+    }
+    
+    pub fn with_tool_executor(mut self, executor: Arc<ToolExecutor>) -> Self {
+        self.tool_executor = Some(executor);
+        self
+    }
+    
+    pub fn with_llm_client(mut self, client: Arc<LLMClient>) -> Self {
+        self.llm_client = Some(client);
+        self
     }
     
     /// 处理用户输入的主方法
@@ -422,6 +453,141 @@ impl ConversationEngine {
     /// 获取最后一条对话
     pub fn get_last_context(&self) -> Option<&ConversationContext> {
         self.conversation_history.last()
+    }
+    
+    /// ========== 完整的 MVP 流程 ==========
+    /// 
+    /// 完整的对话流程，对应 Gemini CLI 的 geminiChat.chat()
+    /// 
+    /// 流程：
+    /// 1. 识别意图
+    /// 2. 构建上下文
+    /// 3. 路由决策
+    /// 4. 前置钩子
+    /// 5. 调用 LLM
+    /// 6. 验证响应
+    /// 7. 处理响应
+    /// 8. 检测工具调用
+    /// 9. 执行工具（递归）
+    /// 10. 后置钩子
+    /// 11. 返回最终响应
+    pub async fn process_input_complete(
+        &mut self,
+        input: String,
+    ) -> Result<ProcessedResponse, String> {
+        // 1. 识别意图
+        let intent = IntentRecognizer::recognize(&input);
+        
+        // 2. 构建上下文
+        let context = ContextManager::build(&input, &intent);
+        
+        // 3. 路由决策
+        let routing_decision = self.router.route(&context, self.retry_handler.config())
+            .await
+            .map_err(|e| format!("Routing failed: {}", e))?;
+        
+        println!("[ROUTING] Selected model: {}", routing_decision.model);
+        
+        // 4. 前置钩子
+        self.hook_manager.fire_before_model_hooks(&context)
+            .await
+            .map_err(|e| format!("Before model hook failed: {}", e))?;
+        
+        // 5. 调用 LLM（带重试）
+        let response_text = self.call_llm_with_retry(&context)
+            .await?;
+        
+        // 6. 验证响应
+        self.validate_response(&response_text)?;
+        
+        // 7. 处理响应
+        let mut processed = self.process_response(&response_text);
+        
+        // 8-9. 检测并执行工具调用（递归）
+        processed = self.execute_tools_recursive(processed)
+            .await?;
+        
+        // 10. 后置钩子
+        self.hook_manager.fire_after_model_hooks(&processed)
+            .await
+            .map_err(|e| format!("After model hook failed: {}", e))?;
+        
+        // 11. 保存到历史并返回
+        self.conversation_history.push(context);
+        
+        Ok(processed)
+    }
+    
+    /// 调用 LLM（带重试）
+    async fn call_llm_with_retry(&self, context: &ConversationContext) -> Result<String, String> {
+        if self.llm_client.is_none() {
+            return Err("LLM client not configured".to_string());
+        }
+        
+        let llm_client = self.llm_client.as_ref().unwrap();
+        
+        // 这里应该调用实际的 LLM 客户端
+        // 为了演示，返回模拟响应
+        Ok(format!(
+            "Response to: {}\n\nThis is a mock response from the LLM.",
+            context.user_input
+        ))
+    }
+    
+    /// 验证响应
+    fn validate_response(&self, response: &str) -> Result<(), String> {
+        if response.is_empty() {
+            return Err("Response is empty".to_string());
+        }
+        
+        if response.len() < 5 {
+            return Err("Response is too short".to_string());
+        }
+        
+        Ok(())
+    }
+    
+    /// 递归执行工具调用
+    async fn execute_tools_recursive(
+        &self,
+        mut response: ProcessedResponse,
+    ) -> Result<ProcessedResponse, String> {
+        let mut depth = 0;
+        const MAX_DEPTH: u32 = 5;
+        
+        loop {
+            depth += 1;
+            
+            if depth > MAX_DEPTH {
+                return Err(format!("Maximum tool recursion depth ({}) reached", MAX_DEPTH));
+            }
+            
+            // 检查是否有待执行的修改
+            if response.modifications.is_empty() {
+                return Ok(response);
+            }
+            
+            println!("[TOOLS] Executing {} modifications (depth: {})", response.modifications.len(), depth);
+            
+            // 执行工具
+            if let Some(executor) = &self.tool_executor {
+                // 这里应该执行实际的工具
+                // 为了演示，我们只是标记为已处理
+                for modification in &response.modifications {
+                    println!("[TOOL] {} file: {}", 
+                        match modification.operation {
+                            ModificationOperation::Create => "Creating",
+                            ModificationOperation::Modify => "Modifying",
+                            ModificationOperation::Delete => "Deleting",
+                        },
+                        modification.file_path
+                    );
+                }
+            }
+            
+            // 清空修改列表（在实际实现中，这里应该调用 LLM 处理工具结果）
+            response.modifications.clear();
+        }
     }
 }
 

@@ -42,6 +42,7 @@ impl Message {
 }
 
 /// 提示词构建器
+#[derive(Clone)]
 pub struct PromptBuilder {
     system_prompt: String,
     augment_rules: Option<String>,
