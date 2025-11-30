@@ -27,8 +27,8 @@ fn render_avatar_compact_boxed(avatar_data: &PixelData, border: Color) -> Vec<Li
     let inner = render_avatar_compact(avatar_data);
     let mut out: Vec<Line<'static>> = Vec::with_capacity(inner.len() + 2);
     let b = Style::default().bg(border);
-    // 顶部边框（5像素 + 左右各1 = 7 列）
-    out.push(Line::from(Span::styled(" ".repeat(7), b)));
+    // 顶部边框（4像素 + 左右各1 = 6 列）
+    out.push(Line::from(Span::styled(" ".repeat(6), b)));
     for line in inner.into_iter() {
         let mut spans = Vec::with_capacity(line.spans.len() + 2);
         spans.push(Span::styled(" ", b));
@@ -37,19 +37,19 @@ fn render_avatar_compact_boxed(avatar_data: &PixelData, border: Color) -> Vec<Li
         out.push(Line::from(spans));
     }
     // 底部边框
-    out.push(Line::from(Span::styled(" ".repeat(7), b)));
+    out.push(Line::from(Span::styled(" ".repeat(6), b)));
     out
 }
 
-/// 更紧凑的头像：将 8x8 采样为 5x5，然后使用半块字符压缩为 5×3。
+/// 更紧凑的头像：将 8x8 采样为 4x4，然后使用半块字符压缩为 4×2。
 fn render_avatar_compact(avatar_data: &PixelData) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     let black = Color::Rgb(0, 0, 0);
 
-    // 采样函数：将目标 [0..5) 映射到源 [0..8)
+    // 采样函数：将目标 [0..4) 映射到源 [0..8)
     let sample = |r_t: usize, c_t: usize| -> u8 {
-        let sr = (((r_t * 8) + 2) / 5).min(7);
-        let sc = (((c_t * 8) + 2) / 5).min(7);
+        let sr = (((r_t * 8) + 1) / 4).min(7);
+        let sc = (((c_t * 8) + 1) / 4).min(7);
         avatar_data.map[sr * 8 + sc]
     };
     let to_color = |v: u8| match v {
@@ -58,9 +58,9 @@ fn render_avatar_compact(avatar_data: &PixelData) -> Vec<Line<'static>> {
         _ => black,
     };
 
-    for tr in (0..5).step_by(2) {
+    for tr in (0..4).step_by(2) {
         let mut spans: Vec<Span<'static>> = Vec::new();
-        for tc in 0..5 {
+        for tc in 0..4 {
             let top = sample(tr, tc);
             let bottom = sample(tr + 1, tc);
             spans.push(Span::styled(
@@ -252,7 +252,7 @@ pub fn render_pixel_layout(f: &mut Frame, app: &App) {
         .constraints([
             Constraint::Min(5),      // 历史区
             Constraint::Length(1),   // 状态栏
-            Constraint::Length(5),   // 输入区（紧凑头像）
+            Constraint::Length(10),  // 输入区（8x8 头像 + 边框 = 10 高）
         ])
         .split(size);
 
@@ -369,8 +369,8 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
             content_lines.push(Line::from(line));
         }
 
-        // 重新计算消息高度：紧凑盒子头像 5 行 与 内容行数取最大
-        let msg_height = 5u16.max(content_lines.len() as u16);
+        // 重新计算消息高度：8x8 头像盒子高度 10 行 与 内容行数取最大
+        let msg_height = 10u16.max(content_lines.len() as u16);
         // 更新内容区域高度（通过重建 msg_area/h_layout）
         let msg_area = Rect {
             x: area.x,
@@ -380,17 +380,12 @@ fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &The
         };
         let h_layout = Layout::default()
             .direction(Direction::Horizontal)
-            // 头像列 8：5 像素 + 2 边框 + 1 间隙
-            .constraints([Constraint::Length(8), Constraint::Min(10)])
+            // 头像列 12：10 宽（8 像素 + 左右各 1 边框）+ 2 列间隙
+            .constraints([Constraint::Length(12), Constraint::Min(10)])
             .split(msg_area);
 
-        // 渲染头像（紧凑 + 角色主题边框，贴近 v2.html）
-        let border_color = match msg.role {
-            AppRole::User => theme.accent_user,
-            AppRole::Assistant => theme.accent_ai,
-            AppRole::System => theme.accent_ai,
-        };
-        let avatar_lines = render_avatar_compact_boxed(&avatar_data, border_color);
+        // 渲染 8x8 头像盒子（边框使用主题边框色）
+        let avatar_lines = render_avatar_box(&avatar_data, theme.border);
         f.render_widget(Paragraph::new(avatar_lines), h_layout[0]);
 
         let content_para = Paragraph::new(content_lines).wrap(Wrap { trim: true });
@@ -470,7 +465,7 @@ fn render_input_area(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(8),   // 紧凑头像（6列 + 2 间隙）
+            Constraint::Length(12),  // 8x8 盒子宽 10 + 2 列间隙
             Constraint::Length(2),   // 箭头
             Constraint::Min(10),     // 输入框
         ])
@@ -491,7 +486,7 @@ fn render_input_area(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
         ],
     };
 
-    let avatar_lines = render_avatar_compact_boxed(&user_avatar, theme.accent_user);
+    let avatar_lines = render_avatar_box(&user_avatar, theme.border);
     f.render_widget(Paragraph::new(avatar_lines), chunks[0]);
 
     // 2. 渲染箭头
