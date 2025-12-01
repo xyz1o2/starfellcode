@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, Paragraph, Wrap},
+    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, StatefulWidget, Wrap},
     Frame,
 };
 use crate::app::App;
@@ -174,13 +174,17 @@ pub fn render_pixel_layout(f: &mut Frame, app: &App) {
     // 背景
     f.render_widget(Block::default().bg(theme.bg), size);
 
+    // 确保输入区最小为3行，给历史区更多空间
+    let input_height = 3;
+    let status_height = 1;
+
     // 垂直分割：历史 | 状态栏 | 输入
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(5),      // 历史区
-            Constraint::Length(1),   // 状态栏
-            Constraint::Length(4),   // 输入区（缩小为 4行）
+            Constraint::Min(12),                    // 历史区（增加到至少12行）
+            Constraint::Length(status_height),      // 状态栏
+            Constraint::Length(input_height),       // 输入区
         ])
         .split(size);
 
@@ -193,67 +197,82 @@ pub fn render_pixel_layout(f: &mut Frame, app: &App) {
 /// 渲染历史区域(带头像)
 fn render_history_with_avatars(f: &mut Frame, app: &App, area: Rect, theme: &Theme) {
     let messages = app.chat_history.get_messages();
-    
+
     // 构建所有消息的行内容
     let mut all_lines: Vec<Line> = Vec::new();
     let mut line_to_msg_map: Vec<usize> = Vec::new(); // 记录每行属于哪个消息
-    
+
     for (msg_idx, msg) in messages.iter().enumerate() {
         let (_role_label, role_color) = match msg.role {
             AppRole::User => ("USER", theme.accent_user),
             AppRole::Assistant => ("AI", theme.accent_ai),
             AppRole::System => ("SYSTEM", Color::Yellow),
         };
-        
+
         // 添加头像行(使用简化的文本表示)
         let avatar_symbol = match msg.role {
             AppRole::User => "👤 ",
             AppRole::Assistant => "🤖 ",
             AppRole::System => "⚙️  ",
         };
-        
+
         all_lines.push(Line::from(Span::styled(
             avatar_symbol,
             Style::default().fg(role_color).add_modifier(Modifier::BOLD),
         )));
         line_to_msg_map.push(msg_idx);
-        
+
         // 添加消息内容
         for line in msg.content.lines() {
             all_lines.push(Line::from(format!("  {}", line)));
             line_to_msg_map.push(msg_idx);
         }
-        
-        // 消息间空行
-        all_lines.push(Line::from(""));
-        line_to_msg_map.push(msg_idx);
+
+        // 消息间空行（除了最后一条消息）
+        if msg_idx < messages.len() - 1 {
+            all_lines.push(Line::from(""));
+            line_to_msg_map.push(msg_idx);
+        }
     }
-    
-    // 计算滚动偏移量
-    // chat_scroll_offset = 0 表示显示最新消息(底部对齐)
-    // chat_scroll_offset > 0 表示向上滚动查看历史消息
+
+    // 计算滚动偏移量 - 确保显示底部最新消息
     let total_lines = all_lines.len() as u16;
     let visible_lines = area.height;
-    
-    let scroll_offset = if total_lines <= visible_lines {
-        // 内容少于可见区域,不需要滚动
-        0
+
+    // 当 chat_scroll_offset = 0 时，显示最新消息（底部对齐）
+    // scroll_offset 表示从顶部跳过多少行
+    let scroll_offset = if total_lines > visible_lines {
+        // 内容超过可见区域，计算偏移以显示底部
+        total_lines.saturating_sub(visible_lines).saturating_sub(app.chat_scroll_offset as u16)
     } else {
-        // 计算从顶部开始的滚动偏移
-        // 当 chat_scroll_offset = 0 时,显示底部(最新消息)
-        // scroll_offset = total_lines - visible_lines
-        // 当向上滚动时,减少 scroll_offset
-        total_lines
-            .saturating_sub(visible_lines)
-            .saturating_sub(app.chat_scroll_offset as u16)
+        // 内容少于可见区域，从顶部开始显示
+        0
     };
-    
+
+    // 创建带边框的历史区域以容纳滚动条
+    let history_block = Block::default()
+        .bg(theme.panel_bg);
+
     // 使用 Paragraph 的 scroll 方法渲染
-    let paragraph = Paragraph::new(all_lines)
+    let paragraph = Paragraph::new(all_lines.clone())
         .wrap(Wrap { trim: true })
-        .scroll((scroll_offset, 0));
-    
+        .scroll((scroll_offset, 0))
+        .block(history_block.clone());
+
+    // 渲染历史消息
     f.render_widget(paragraph, area);
+
+    // 添加滚动条
+    if total_lines > visible_lines {
+        let mut scrollbar_state = ratatui::widgets::ScrollbarState::default()
+            .content_length(total_lines as usize)
+            .position(scroll_offset as usize);
+
+        ratatui::widgets::Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .thumb_symbol("█")
+            .render(area, f.buffer_mut(), &mut scrollbar_state);
+    }
 }
 
 /// 渲染历史区域（旧版本，不带头像）
