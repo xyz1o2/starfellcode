@@ -10,8 +10,7 @@ use crate::commands::file_commands::FileCommandHandler;
 use crate::prompts;
 use crate::ai::code_modification::{AICodeModificationDetector, CodeModificationOp, CodeDiff, CodeMatcher};
 use ratatui::{Frame, widgets::ScrollbarState};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use crate::ui;
 
 // ============ Action 系统 ============
@@ -254,80 +253,61 @@ impl App {
 
         if input.starts_with('/') {
             self.handle_command(&input).await;
-        } else {
-            // 直接使用 LLM 客户端流式处理
-            if let Some(client) = &self.llm_client {
-                let messages = vec![
-                    ChatMessage {
-                        role: "user".to_string(),
-                        content: input.clone(),
-                    }
-                ];
+        } else if self.llm_client.is_some() {
+            // 使用 StreamHandler 进行流式输出
+            let handler = StreamHandler::new();
+            self.stream_handler = Some(handler.clone());
+            self.is_streaming = true;
 
-                let response_text = Arc::new(Mutex::new(String::new()));
-                let response_clone = response_text.clone();
+            // 在聊天历史中预先插入一条空的 AI 消息，用于流式更新
+            self.chat_history.add_message(Message {
+                role: Role::Assistant,
+                content: String::new(),
+            });
+            self.scroll_to_bottom();
 
-                let callback = move |token: String| -> bool {
-                    // 使用 try_lock() 避免在异步运行时中阻塞
-                    if let Ok(mut resp) = response_clone.try_lock() {
-                        resp.push_str(&token);
-                        true
-                    } else {
-                        false
-                    }
+            let client = self.llm_client.as_ref().unwrap().clone();
+            let input_clone = input.clone();
+
+            tokio::spawn(async move {
+                let handler_clone = handler.clone();
+                let callback = move |token: String| {
+                    let _ = handler_clone.send_token(token);
+                    true
                 };
+
+                let messages = vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: input_clone,
+                }];
 
                 match client.generate_completion_stream(messages, None, callback).await {
                     Ok(_) => {
-                        // 使用 try_lock() 而不是 blocking_lock() 避免 panic
-                        match response_text.try_lock() {
-                            Ok(resp) => {
-                                let content = resp.clone();
-                                drop(resp);
-
-                                self.chat_history.add_message(Message {
-                                    role: Role::Assistant,
-                                    content: content.clone(),
-                                });
-                                self.scroll_to_bottom();
-                                self.process_ai_response_for_modifications(&content);
-                            }
-                            Err(_err) => {
-                                self.chat_history.add_message(Message {
-                                    role: Role::System,
-                                    content: "❌ 错误: 无法获取响应锁".to_string(),
-                                });
-                                self.scroll_to_bottom();
-                            }
-                        }
+                        let _ = handler.send_done();
                     }
-                    Err(err) => {
-                        self.chat_history.add_message(Message {
-                            role: Role::System,
-                            content: format!("❌ LLM 错误: {}", err),
-                        });
-                        self.scroll_to_bottom();
+                    Err(e) => {
+                        let _ = handler.send_error(e.to_string());
                     }
                 }
-            } else {
-                // 如果 ChatOrchestrator 未初始化，使用备用方案
-                let processed_input = self.process_mentions(&input);
-                match self.gemini.chat(processed_input.clone()).await {
-                    Ok(response) => {
-                        self.chat_history.add_message(Message {
-                            role: Role::Assistant,
-                            content: response.clone(),
-                        });
-                        self.scroll_to_bottom();
-                        self.process_ai_response_for_modifications(&response);
-                    }
-                    Err(err) => {
-                        self.chat_history.add_message(Message {
-                            role: Role::System,
-                            content: format!("❌ Gemini 错误: {}", err),
-                        });
-                        self.scroll_to_bottom();
-                    }
+            });
+        } else {
+            // 如果 LLM client 未初始化，使用备用方案（Gemini）
+            let processed_input = self.process_mentions(&input);
+            match self.gemini.chat(processed_input.clone()).await {
+                Ok(response) => {
+                    self.chat_history.add_message(Message {
+                        role: Role::Assistant,
+                        content: response.clone(),
+                    });
+                    self.scroll_to_bottom();
+                    self.process_ai_response_for_modifications(&response);
+                }
+                Err(err) => {
+                    self.chat_history.add_message(Message {
+                        role: Role::System,
+                        content: format!("❌ Gemini 错误: {}", err),
+                    });
+                    self.scroll_to_bottom();
                 }
             }
         }
@@ -564,7 +544,7 @@ impl App {
 
     pub async fn finalize_streaming_response(&mut self) {
         let ai_response_opt = {
-            let mut response = self.streaming_response.lock().await;
+            let mut response = self.streaming_response.lock().unwrap();
             if !response.content.is_empty() {
                 let content = response.content.clone();
                 response.reset();

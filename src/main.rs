@@ -135,7 +135,7 @@ async fn run_app<B: ratatui::backend::Backend>(
                                 }
                             }
                             // 同步到 streaming_response（保持现有渲染逻辑兼容）
-                            let mut streaming_response = app.streaming_response.lock().await;
+                            let mut streaming_response = app.streaming_response.lock().unwrap();
                             streaming_response.append(&t);
                             drop(streaming_response); // 释放锁
                             
