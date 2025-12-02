@@ -1,4 +1,5 @@
 use crate::app::{App, AppAction, ModificationChoice};
+use crate::ai::code_modification::{CodeModificationOp, CodeMatcher};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 
 fn estimate_chat_lines(app: &App) -> usize {
@@ -113,12 +114,11 @@ impl EventHandler {
                                         }
                                     }
                                 }
-                                crate::ai::code_modification::CodeModificationOp::Modify { path, search: _, replace } => {
-                                    // 修改文件
-                                    match std::fs::read_to_string(path) {
-                                        Ok(content) => {
-                                            let new_content = content.replace(&content, &replace);
-                                            match std::fs::write(path, new_content) {
+                                CodeModificationOp::Modify { path, search, replace } => {
+                                    // 修改文件 - 使用 CodeMatcher 进行模糊匹配
+                                    match CodeMatcher::find_and_replace(&path, &search, &replace) {
+                                        Ok(diff) => {
+                                            match std::fs::write(path, diff.new_content) {
                                                 Ok(_) => {
                                                     app.chat_history.add_message(crate::core::message::Message {
                                                         role: crate::core::message::Role::System,
@@ -136,7 +136,7 @@ impl EventHandler {
                                         Err(e) => {
                                             app.chat_history.add_message(crate::core::message::Message {
                                                 role: crate::core::message::Role::System,
-                                                content: format!("❌ 读取文件失败: {}", e),
+                                                content: format!("❌ 代码匹配失败: {}", e),
                                             });
                                         }
                                     }
