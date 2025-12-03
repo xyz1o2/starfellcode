@@ -21,7 +21,18 @@ pub struct ChatState {
     chat_history: Vec<ChatEntry>,
     input: String,
     scroll: u16,
+    show_command_hints: bool,
+    command_hints: Vec<String>,
+    selected_hint: usize,
 }
+
+const AVAILABLE_COMMANDS: &[&str] = &[
+    "/help - Show this help message",
+    "/clear - Clear chat history",
+    "/status - Show application status",
+    "/model - Show current model",
+    "/exit - Exit the application",
+];
 
 pub async fn run_app(mut agent: GrokAgent, initial_message: String) -> Result<(), Box<dyn std::error::Error>> {
     // Setup terminal
@@ -35,6 +46,9 @@ pub async fn run_app(mut agent: GrokAgent, initial_message: String) -> Result<()
         chat_history: vec![],
         input: String::new(),
         scroll: 0,
+        show_command_hints: false,
+        command_hints: vec![],
+        selected_hint: 0,
     };
 
     // If there's an initial message, process it first
@@ -128,11 +142,47 @@ async fn run_ui_loop(
                 .block(Block::default().borders(Borders::TOP | Borders::BOTTOM));
             f.render_widget(chat_list, chunks[1]);
 
-            // Input area
-            let input_text = format!("> {}_", state.input);
-            let input_paragraph = Paragraph::new(input_text)
-                .block(Block::default().borders(Borders::TOP).title("Input"));
-            f.render_widget(input_paragraph, chunks[2]);
+            // Input area with command hints
+            let input_area = chunks[2];
+            
+            // Show command hints if available
+            if state.show_command_hints && !state.command_hints.is_empty() {
+                let hints_height = (state.command_hints.len() as u16).min(5);
+                let hints_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(input_area.height.saturating_sub(hints_height + 1)),
+                        Constraint::Length(hints_height),
+                    ])
+                    .split(input_area);
+                
+                // Render input
+                let input_text = format!("> {}_", state.input);
+                let input_paragraph = Paragraph::new(input_text)
+                    .block(Block::default().borders(Borders::TOP).title("Input"));
+                f.render_widget(input_paragraph, hints_chunks[0]);
+                
+                // Render hints
+                let hint_items: Vec<ListItem> = state.command_hints.iter().enumerate()
+                    .map(|(idx, hint)| {
+                        let style = if idx == state.selected_hint {
+                            Style::default().fg(Color::Black).bg(Color::Cyan)
+                        } else {
+                            Style::default().fg(Color::Yellow)
+                        };
+                        ListItem::new(hint.clone()).style(style)
+                    })
+                    .collect();
+                
+                let hints_list = List::new(hint_items)
+                    .block(Block::default().borders(Borders::TOP).title("Commands"));
+                f.render_widget(hints_list, hints_chunks[1]);
+            } else {
+                let input_text = format!("> {}_", state.input);
+                let input_paragraph = Paragraph::new(input_text)
+                    .block(Block::default().borders(Borders::TOP).title("Input"));
+                f.render_widget(input_paragraph, input_area);
+            }
         })?;
 
         // Handle events
@@ -146,44 +196,144 @@ async fn run_ui_loop(
                         },
                         KeyCode::Char(c) => {
                             state.input.push(c);
+                            
+                            // Update command hints when user types '/'
+                            if state.input.starts_with('/') {
+                                state.show_command_hints = true;
+                                state.command_hints = AVAILABLE_COMMANDS
+                                    .iter()
+                                    .filter(|cmd| cmd.to_lowercase().contains(&state.input.to_lowercase()))
+                                    .map(|s| s.to_string())
+                                    .collect();
+                                state.selected_hint = 0;
+                            } else {
+                                state.show_command_hints = false;
+                                state.command_hints.clear();
+                            }
                         },
                         KeyCode::Backspace => {
                             state.input.pop();
+                            
+                            // Update command hints after backspace
+                            if state.input.starts_with('/') {
+                                state.show_command_hints = true;
+                                state.command_hints = AVAILABLE_COMMANDS
+                                    .iter()
+                                    .filter(|cmd| cmd.to_lowercase().contains(&state.input.to_lowercase()))
+                                    .map(|s| s.to_string())
+                                    .collect();
+                                state.selected_hint = 0;
+                            } else {
+                                state.show_command_hints = false;
+                                state.command_hints.clear();
+                            }
+                        },
+                        KeyCode::Up => {
+                            // Navigate up in command hints
+                            if state.show_command_hints && !state.command_hints.is_empty() {
+                                if state.selected_hint > 0 {
+                                    state.selected_hint -= 1;
+                                }
+                            }
+                        },
+                        KeyCode::Down => {
+                            // Navigate down in command hints
+                            if state.show_command_hints && !state.command_hints.is_empty() {
+                                if state.selected_hint < state.command_hints.len() - 1 {
+                                    state.selected_hint += 1;
+                                }
+                            }
+                        },
+                        KeyCode::Tab => {
+                            // Auto-complete selected command
+                            if state.show_command_hints && !state.command_hints.is_empty() {
+                                let selected = &state.command_hints[state.selected_hint];
+                                // Extract just the command part (e.g., "/help" from "/help - Show this help message")
+                                let cmd = selected.split_whitespace().next().unwrap_or("");
+                                state.input = cmd.to_string();
+                                state.show_command_hints = false;
+                                state.command_hints.clear();
+                            }
                         },
                         KeyCode::Enter => {
                             if !state.input.trim().is_empty() {
-                                // Add user message to chat
                                 let user_input = state.input.clone();
-                                state.chat_history.push(ChatEntry {
-                                    entry_type: ChatEntryType::User,
-                                    content: user_input.clone(),
-                                    timestamp: chrono::Utc::now(),
-                                    tool_calls: None,
-                                    tool_call: None,
-                                    tool_result: None,
-                                    is_streaming: None,
-                                });
+                                state.show_command_hints = false;
+                                state.command_hints.clear();
+                                
+                                // Check if input is a command
+                                if user_input.starts_with('/') {
+                                    let cmd_response = match user_input.trim() {
+                                        "/help" => {
+                                            "Available commands:\n\
+                                            /help - Show this help message\n\
+                                            /clear - Clear chat history\n\
+                                            /status - Show application status\n\
+                                            /model - Show current model\n\
+                                            /exit - Exit the application".to_string()
+                                        },
+                                        "/clear" => {
+                                            state.chat_history.clear();
+                                            "Chat history cleared.".to_string()
+                                        },
+                                        "/status" => {
+                                            "Status: Running\n\
+                                            Model: Grok\n\
+                                            Ready for input.".to_string()
+                                        },
+                                        "/model" => {
+                                            "Current model: grok-2\n\
+                                            Available models: grok-2, grok-vision".to_string()
+                                        },
+                                        "/exit" => {
+                                            return Ok(());
+                                        },
+                                        _ => format!("Unknown command: {}. Type /help for available commands.", user_input),
+                                    };
+                                    
+                                    state.chat_history.push(ChatEntry {
+                                        entry_type: ChatEntryType::Assistant,
+                                        content: cmd_response,
+                                        timestamp: chrono::Utc::now(),
+                                        tool_calls: None,
+                                        tool_call: None,
+                                        tool_result: None,
+                                        is_streaming: None,
+                                    });
+                                } else {
+                                    // Add user message to chat
+                                    state.chat_history.push(ChatEntry {
+                                        entry_type: ChatEntryType::User,
+                                        content: user_input.clone(),
+                                        timestamp: chrono::Utc::now(),
+                                        tool_calls: None,
+                                        tool_call: None,
+                                        tool_result: None,
+                                        is_streaming: None,
+                                    });
 
-                                // Process with agent
-                                let agent_response = agent.process_user_message(&user_input).await;
-                                state.input.clear();
+                                    // Process with agent
+                                    let agent_response = agent.process_user_message(&user_input).await;
 
-                                match agent_response {
-                                    Ok(entries) => {
-                                        state.chat_history.extend(entries);
-                                    }
-                                    Err(e) => {
-                                        state.chat_history.push(ChatEntry {
-                                            entry_type: ChatEntryType::Assistant,
-                                            content: format!("Error: {}", e),
-                                            timestamp: chrono::Utc::now(),
-                                            tool_calls: None,
-                                            tool_call: None,
-                                            tool_result: None,
-                                            is_streaming: None,
-                                        });
+                                    match agent_response {
+                                        Ok(entries) => {
+                                            state.chat_history.extend(entries);
+                                        }
+                                        Err(e) => {
+                                            state.chat_history.push(ChatEntry {
+                                                entry_type: ChatEntryType::Assistant,
+                                                content: format!("Error: {}", e),
+                                                timestamp: chrono::Utc::now(),
+                                                tool_calls: None,
+                                                tool_call: None,
+                                                tool_result: None,
+                                                is_streaming: None,
+                                            });
+                                        }
                                     }
                                 }
+                                
+                                state.input.clear();
                             }
                         },
                         KeyCode::Esc => return Ok(()),
