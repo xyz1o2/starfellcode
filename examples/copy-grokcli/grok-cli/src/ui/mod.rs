@@ -1,19 +1,16 @@
 use ratatui::{
-    prelude::{CrosstermBackend, Terminal, Rect},
+    prelude::{CrosstermBackend, Rect},
     Terminal as RatatuiTerminal,
     widgets::{Block, Borders, Paragraph, List, ListItem},
     layout::{Layout, Direction, Constraint},
     style::{Style, Color},
 };
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers, KeyEventKind},
+    event::{self, Event, KeyCode, KeyModifiers, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
 use crate::agent::GrokAgent;
 use crate::types::{ChatEntry, ChatEntryType};
 
@@ -24,6 +21,9 @@ pub struct ChatState {
     show_command_hints: bool,
     command_hints: Vec<String>,
     selected_hint: usize,
+    show_mention_hints: bool,
+    mention_hints: Vec<String>,
+    selected_mention_hint: usize,
 }
 
 const AVAILABLE_COMMANDS: &[&str] = &[
@@ -33,6 +33,24 @@ const AVAILABLE_COMMANDS: &[&str] = &[
     "/commit-and-push - AI commit & push to remote",
     "/exit - Exit the application",
 ];
+
+const AVAILABLE_MENTIONS: &[&str] = &[
+    "@file - Mention a file",
+    "@model - Mention current model",
+    "@provider - Mention current provider",
+    "@history - Mention chat history",
+];
+
+fn get_welcome_message() -> String {
+    "🤖 Welcome to starfellcode CLI!\n\n\
+    Tips for getting started:\n\
+    1. Ask questions, edit files, or run commands.\n\
+    2. Be specific for the best results.\n\
+    3. Create GROK.md files to customize your interactions.\n\
+    4. Press Shift+Tab to toggle auto-edit mode.\n\
+    5. /help for more information.\n\n\
+    Type your request in natural language. Ctrl+C to clear, 'exit' to quit.".to_string()
+}
 
 pub async fn run_app(mut agent: GrokAgent, initial_message: String) -> Result<(), Box<dyn std::error::Error>> {
     // Setup terminal
@@ -49,6 +67,9 @@ pub async fn run_app(mut agent: GrokAgent, initial_message: String) -> Result<()
         show_command_hints: false,
         command_hints: vec![],
         selected_hint: 0,
+        show_mention_hints: false,
+        mention_hints: vec![],
+        selected_mention_hint: 0,
     };
 
     // If there's an initial message, process it first
@@ -100,7 +121,7 @@ async fn run_ui_loop(
     loop {
         // Draw UI
         terminal.draw(|f| {
-            let size = f.size();
+            let size = f.area();
 
             // Create vertical layout: header, chat area, input
             let chunks = Layout::default()
@@ -113,9 +134,7 @@ async fn run_ui_loop(
                 .split(size);
 
             // Header
-            let header_block = Block::default()
-                .borders(Borders::BOTTOM)
-                .title("🤖 Grok CLI - Conversational AI Assistant");
+            let header_block = Block::default();
             f.render_widget(header_block, chunks[0]);
 
             // Chat history
@@ -139,14 +158,42 @@ async fn run_ui_loop(
                 .collect();
 
             let chat_list = List::new(chat_items)
-                .block(Block::default().borders(Borders::TOP | Borders::BOTTOM));
+                .block(Block::default().borders(Borders::BOTTOM));
             f.render_widget(chat_list, chunks[1]);
 
             // Input area
             let input_text = format!("> {}_", state.input);
             let input_paragraph = Paragraph::new(input_text)
-                .block(Block::default().borders(Borders::TOP).title("Input"));
+                .block(Block::default());
             f.render_widget(input_paragraph, chunks[2]);
+            
+            // Show mention hints as overlay if available
+            if state.show_mention_hints && !state.mention_hints.is_empty() {
+                // Create a popup area for hints (above the input)
+                let hints_height = (state.mention_hints.len() as u16).min(5) + 2; // +2 for border
+                let popup_area = Rect {
+                    x: chunks[2].x,
+                    y: chunks[2].y.saturating_sub(hints_height),
+                    width: chunks[2].width,
+                    height: hints_height,
+                };
+                
+                // Render mention hints popup
+                let hint_items: Vec<ListItem> = state.mention_hints.iter().take(5).enumerate()
+                    .map(|(idx, hint)| {
+                        let style = if idx == state.selected_mention_hint {
+                            Style::default().fg(Color::Black).bg(Color::Magenta)
+                        } else {
+                            Style::default().fg(Color::Magenta)
+                        };
+                        ListItem::new(hint.clone()).style(style)
+                    })
+                    .collect();
+                
+                let hints_list = List::new(hint_items)
+                    .block(Block::default().borders(Borders::ALL).title("Mentions"));
+                f.render_widget(hints_list, popup_area);
+            }
             
             // Show command hints as overlay if available
             if state.show_command_hints && !state.command_hints.is_empty() {
@@ -189,8 +236,34 @@ async fn run_ui_loop(
                         KeyCode::Char(c) => {
                             state.input.push(c);
                             
+                            // Check for @ mentions
+                            if let Some(at_pos) = state.input.rfind('@') {
+                                let after_at = &state.input[at_pos..];
+                                if !after_at.contains(' ') {
+                                    // We're in a mention
+                                    state.show_mention_hints = true;
+                                    let mention_lower = after_at.to_lowercase();
+                                    state.mention_hints = AVAILABLE_MENTIONS
+                                        .iter()
+                                        .filter(|mention| {
+                                            let mention_name = mention.split(" - ").next().unwrap_or("");
+                                            mention_name.to_lowercase().starts_with(&mention_lower)
+                                        })
+                                        .map(|s| s.to_string())
+                                        .collect();
+                                    state.selected_mention_hint = 0;
+                                    state.show_command_hints = false;
+                                } else {
+                                    state.show_mention_hints = false;
+                                    state.mention_hints.clear();
+                                }
+                            } else {
+                                state.show_mention_hints = false;
+                                state.mention_hints.clear();
+                            }
+                            
                             // Update command hints when user types '/'
-                            if state.input.starts_with('/') {
+                            if state.input.starts_with('/') && !state.show_mention_hints {
                                 state.show_command_hints = true;
                                 let input_lower = state.input.to_lowercase();
                                 state.command_hints = AVAILABLE_COMMANDS
@@ -203,7 +276,7 @@ async fn run_ui_loop(
                                     .map(|s| s.to_string())
                                     .collect();
                                 state.selected_hint = 0;
-                            } else {
+                            } else if !state.show_mention_hints {
                                 state.show_command_hints = false;
                                 state.command_hints.clear();
                             }
@@ -231,26 +304,50 @@ async fn run_ui_loop(
                             }
                         },
                         KeyCode::Up => {
+                            // Navigate up in mention hints
+                            if state.show_mention_hints && !state.mention_hints.is_empty() {
+                                if state.selected_mention_hint > 0 {
+                                    state.selected_mention_hint -= 1;
+                                }
+                            }
                             // Navigate up in command hints
-                            if state.show_command_hints && !state.command_hints.is_empty() {
+                            else if state.show_command_hints && !state.command_hints.is_empty() {
                                 if state.selected_hint > 0 {
                                     state.selected_hint -= 1;
                                 }
                             }
                         },
                         KeyCode::Down => {
+                            // Navigate down in mention hints
+                            if state.show_mention_hints && !state.mention_hints.is_empty() {
+                                if state.selected_mention_hint < state.mention_hints.len() - 1 {
+                                    state.selected_mention_hint += 1;
+                                }
+                            }
                             // Navigate down in command hints
-                            if state.show_command_hints && !state.command_hints.is_empty() {
+                            else if state.show_command_hints && !state.command_hints.is_empty() {
                                 if state.selected_hint < state.command_hints.len() - 1 {
                                     state.selected_hint += 1;
                                 }
                             }
                         },
                         KeyCode::Tab => {
+                            // Auto-complete selected mention
+                            if state.show_mention_hints && !state.mention_hints.is_empty() {
+                                let selected = &state.mention_hints[state.selected_mention_hint];
+                                let mention = selected.split_whitespace().next().unwrap_or("");
+                                // Replace from the last @ to the end
+                                if let Some(at_pos) = state.input.rfind('@') {
+                                    state.input.truncate(at_pos);
+                                    state.input.push_str(mention);
+                                    state.input.push(' ');
+                                }
+                                state.show_mention_hints = false;
+                                state.mention_hints.clear();
+                            }
                             // Auto-complete selected command
-                            if state.show_command_hints && !state.command_hints.is_empty() {
+                            else if state.show_command_hints && !state.command_hints.is_empty() {
                                 let selected = &state.command_hints[state.selected_hint];
-                                // Extract just the command part (e.g., "/help" from "/help - Show this help message")
                                 let cmd = selected.split_whitespace().next().unwrap_or("");
                                 state.input = cmd.to_string();
                                 state.show_command_hints = false;
@@ -262,6 +359,8 @@ async fn run_ui_loop(
                                 let user_input = state.input.clone();
                                 state.show_command_hints = false;
                                 state.command_hints.clear();
+                                state.show_mention_hints = false;
+                                state.mention_hints.clear();
                                 
                                 // Check if input is a command
                                 if user_input.starts_with('/') {
@@ -319,7 +418,54 @@ async fn run_ui_loop(
 
                                     match agent_response {
                                         Ok(entries) => {
-                                            state.chat_history.extend(entries);
+                                            // Filter out empty entries and combine consecutive assistant messages
+                                            let mut filtered_entries = Vec::new();
+                                            let mut last_assistant_content = String::new();
+                                            
+                                            for entry in entries {
+                                                // Skip empty content entries
+                                                if entry.content.trim().is_empty() {
+                                                    continue;
+                                                }
+                                                
+                                                // Combine consecutive assistant messages
+                                                if entry.entry_type == ChatEntryType::Assistant {
+                                                    if !last_assistant_content.is_empty() {
+                                                        last_assistant_content.push('\n');
+                                                    }
+                                                    last_assistant_content.push_str(&entry.content);
+                                                } else {
+                                                    // Flush accumulated assistant content
+                                                    if !last_assistant_content.is_empty() {
+                                                        filtered_entries.push(ChatEntry {
+                                                            entry_type: ChatEntryType::Assistant,
+                                                            content: last_assistant_content.clone(),
+                                                            timestamp: chrono::Utc::now(),
+                                                            tool_calls: None,
+                                                            tool_call: None,
+                                                            tool_result: None,
+                                                            is_streaming: None,
+                                                        });
+                                                        last_assistant_content.clear();
+                                                    }
+                                                    filtered_entries.push(entry);
+                                                }
+                                            }
+                                            
+                                            // Flush any remaining assistant content
+                                            if !last_assistant_content.is_empty() {
+                                                filtered_entries.push(ChatEntry {
+                                                    entry_type: ChatEntryType::Assistant,
+                                                    content: last_assistant_content,
+                                                    timestamp: chrono::Utc::now(),
+                                                    tool_calls: None,
+                                                    tool_call: None,
+                                                    tool_result: None,
+                                                    is_streaming: None,
+                                                });
+                                            }
+                                            
+                                            state.chat_history.extend(filtered_entries);
                                         }
                                         Err(e) => {
                                             state.chat_history.push(ChatEntry {

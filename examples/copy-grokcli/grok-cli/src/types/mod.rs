@@ -36,7 +36,7 @@ pub enum EditorCommandType {
     UndoEdit,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ChatEntryType {
     User,
     Assistant,
