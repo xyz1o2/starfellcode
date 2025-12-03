@@ -894,7 +894,8 @@ fn calculate_file_score(file_name: &str, file_path: &str, pattern: &str) -> u32 
 
     if pattern_index == lower_pattern.len() {
         // All characters found in order - score based on how close they are
-        return std::cmp::max(10, 40 - (file_name.len() as i32 - pattern.len() as i32) as u32);
+        let diff = (file_name.len() as i32 - pattern.len() as i32).max(0) as u32;
+        return std::cmp::max(10, 40u32.saturating_sub(diff));
     }
 
     0

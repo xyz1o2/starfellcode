@@ -402,7 +402,7 @@ async fn run_ui_loop(
                                         is_streaming: None,
                                     });
                                 } else {
-                                    // Add user message to chat
+                                    // Add user message to chat immediately
                                     state.chat_history.push(ChatEntry {
                                         entry_type: ChatEntryType::User,
                                         content: user_input.clone(),
@@ -413,59 +413,70 @@ async fn run_ui_loop(
                                         is_streaming: None,
                                     });
 
-                                    // Process with agent
-                                    let agent_response = agent.process_user_message(&user_input).await;
+                                    // Add a temporary "thinking" message with streaming flag
+                                    let thinking_idx = state.chat_history.len();
+                                    state.chat_history.push(ChatEntry {
+                                        entry_type: ChatEntryType::Assistant,
+                                        content: "⏳ 正在思考...".to_string(),
+                                        timestamp: chrono::Utc::now(),
+                                        tool_calls: None,
+                                        tool_call: None,
+                                        tool_result: None,
+                                        is_streaming: Some(true),
+                                    });
 
+                                    // Process with agent with timeout
+                                    let agent_response = tokio::time::timeout(
+                                        std::time::Duration::from_secs(30),
+                                        agent.process_user_message(&user_input)
+                                    ).await;
+                                    
+                                    let agent_response = match agent_response {
+                                        Ok(resp) => resp,
+                                        Err(_) => {
+                                            Err(Box::new(std::io::Error::new(
+                                                std::io::ErrorKind::TimedOut,
+                                                "LLM call timed out after 30 seconds"
+                                            )) as Box<dyn std::error::Error>)
+                                        }
+                                    };
+
+                                    // Replace the "thinking" message with actual response
                                     match agent_response {
                                         Ok(entries) => {
                                             // Filter out empty entries and combine consecutive assistant messages
-                                            let mut filtered_entries = Vec::new();
-                                            let mut last_assistant_content = String::new();
+                                            let mut combined_content = String::new();
                                             
                                             for entry in entries {
-                                                // Skip empty content entries
-                                                if entry.content.trim().is_empty() {
+                                                // Skip user messages (already added above) and empty content entries
+                                                if entry.entry_type == ChatEntryType::User || entry.content.trim().is_empty() {
                                                     continue;
                                                 }
                                                 
-                                                // Combine consecutive assistant messages
+                                                // Combine assistant messages
                                                 if entry.entry_type == ChatEntryType::Assistant {
-                                                    if !last_assistant_content.is_empty() {
-                                                        last_assistant_content.push('\n');
+                                                    if !combined_content.is_empty() {
+                                                        combined_content.push('\n');
                                                     }
-                                                    last_assistant_content.push_str(&entry.content);
-                                                } else {
-                                                    // Flush accumulated assistant content
-                                                    if !last_assistant_content.is_empty() {
-                                                        filtered_entries.push(ChatEntry {
-                                                            entry_type: ChatEntryType::Assistant,
-                                                            content: last_assistant_content.clone(),
-                                                            timestamp: chrono::Utc::now(),
-                                                            tool_calls: None,
-                                                            tool_call: None,
-                                                            tool_result: None,
-                                                            is_streaming: None,
-                                                        });
-                                                        last_assistant_content.clear();
-                                                    }
-                                                    filtered_entries.push(entry);
+                                                    combined_content.push_str(&entry.content);
                                                 }
                                             }
                                             
-                                            // Flush any remaining assistant content
-                                            if !last_assistant_content.is_empty() {
-                                                filtered_entries.push(ChatEntry {
+                                            // Replace the "thinking" message with actual response
+                                            if !combined_content.is_empty() && thinking_idx < state.chat_history.len() {
+                                                state.chat_history[thinking_idx] = ChatEntry {
                                                     entry_type: ChatEntryType::Assistant,
-                                                    content: last_assistant_content,
+                                                    content: combined_content,
                                                     timestamp: chrono::Utc::now(),
                                                     tool_calls: None,
                                                     tool_call: None,
                                                     tool_result: None,
-                                                    is_streaming: None,
-                                                });
+                                                    is_streaming: Some(false),
+                                                };
+                                            } else if combined_content.is_empty() {
+                                                // If no content, remove the thinking message
+                                                state.chat_history.pop();
                                             }
-                                            
-                                            state.chat_history.extend(filtered_entries);
                                         }
                                         Err(e) => {
                                             state.chat_history.push(ChatEntry {
