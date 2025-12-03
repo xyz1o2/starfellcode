@@ -89,4 +89,3 @@ build/
 .kiro/
 .claude/
 .spec-workflow/
-examples/grok-cli-main/

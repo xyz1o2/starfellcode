@@ -1,5 +1,5 @@
 use ratatui::{
-    prelude::{CrosstermBackend, Terminal},
+    prelude::{CrosstermBackend, Terminal, Rect},
     Terminal as RatatuiTerminal,
     widgets::{Block, Borders, Paragraph, List, ListItem},
     layout::{Layout, Direction, Constraint},
@@ -27,10 +27,10 @@ pub struct ChatState {
 }
 
 const AVAILABLE_COMMANDS: &[&str] = &[
-    "/help - Show this help message",
+    "/help - Show help information",
     "/clear - Clear chat history",
-    "/status - Show application status",
-    "/model - Show current model",
+    "/models - Switch Grok Model",
+    "/commit-and-push - AI commit & push to remote",
     "/exit - Exit the application",
 ];
 
@@ -142,28 +142,25 @@ async fn run_ui_loop(
                 .block(Block::default().borders(Borders::TOP | Borders::BOTTOM));
             f.render_widget(chat_list, chunks[1]);
 
-            // Input area with command hints
-            let input_area = chunks[2];
+            // Input area
+            let input_text = format!("> {}_", state.input);
+            let input_paragraph = Paragraph::new(input_text)
+                .block(Block::default().borders(Borders::TOP).title("Input"));
+            f.render_widget(input_paragraph, chunks[2]);
             
-            // Show command hints if available
+            // Show command hints as overlay if available
             if state.show_command_hints && !state.command_hints.is_empty() {
-                let hints_height = (state.command_hints.len() as u16).min(5);
-                let hints_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([
-                        Constraint::Length(input_area.height.saturating_sub(hints_height + 1)),
-                        Constraint::Length(hints_height),
-                    ])
-                    .split(input_area);
+                // Create a popup area for hints (above the input)
+                let hints_height = (state.command_hints.len() as u16).min(5) + 2; // +2 for border
+                let popup_area = Rect {
+                    x: chunks[2].x,
+                    y: chunks[2].y.saturating_sub(hints_height),
+                    width: chunks[2].width,
+                    height: hints_height,
+                };
                 
-                // Render input
-                let input_text = format!("> {}_", state.input);
-                let input_paragraph = Paragraph::new(input_text)
-                    .block(Block::default().borders(Borders::TOP).title("Input"));
-                f.render_widget(input_paragraph, hints_chunks[0]);
-                
-                // Render hints
-                let hint_items: Vec<ListItem> = state.command_hints.iter().enumerate()
+                // Render hints popup
+                let hint_items: Vec<ListItem> = state.command_hints.iter().take(5).enumerate()
                     .map(|(idx, hint)| {
                         let style = if idx == state.selected_hint {
                             Style::default().fg(Color::Black).bg(Color::Cyan)
@@ -175,13 +172,8 @@ async fn run_ui_loop(
                     .collect();
                 
                 let hints_list = List::new(hint_items)
-                    .block(Block::default().borders(Borders::TOP).title("Commands"));
-                f.render_widget(hints_list, hints_chunks[1]);
-            } else {
-                let input_text = format!("> {}_", state.input);
-                let input_paragraph = Paragraph::new(input_text)
-                    .block(Block::default().borders(Borders::TOP).title("Input"));
-                f.render_widget(input_paragraph, input_area);
+                    .block(Block::default().borders(Borders::ALL).title("Commands"));
+                f.render_widget(hints_list, popup_area);
             }
         })?;
 
@@ -200,9 +192,14 @@ async fn run_ui_loop(
                             // Update command hints when user types '/'
                             if state.input.starts_with('/') {
                                 state.show_command_hints = true;
+                                let input_lower = state.input.to_lowercase();
                                 state.command_hints = AVAILABLE_COMMANDS
                                     .iter()
-                                    .filter(|cmd| cmd.to_lowercase().contains(&state.input.to_lowercase()))
+                                    .filter(|cmd| {
+                                        // Extract command name (before the dash)
+                                        let cmd_name = cmd.split(" - ").next().unwrap_or("");
+                                        cmd_name.to_lowercase().starts_with(&input_lower)
+                                    })
                                     .map(|s| s.to_string())
                                     .collect();
                                 state.selected_hint = 0;
@@ -217,9 +214,14 @@ async fn run_ui_loop(
                             // Update command hints after backspace
                             if state.input.starts_with('/') {
                                 state.show_command_hints = true;
+                                let input_lower = state.input.to_lowercase();
                                 state.command_hints = AVAILABLE_COMMANDS
                                     .iter()
-                                    .filter(|cmd| cmd.to_lowercase().contains(&state.input.to_lowercase()))
+                                    .filter(|cmd| {
+                                        // Extract command name (before the dash)
+                                        let cmd_name = cmd.split(" - ").next().unwrap_or("");
+                                        cmd_name.to_lowercase().starts_with(&input_lower)
+                                    })
                                     .map(|s| s.to_string())
                                     .collect();
                                 state.selected_hint = 0;
